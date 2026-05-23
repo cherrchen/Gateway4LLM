@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.chat import ChatRequest, ChatResponse
+from app.models.chat_completion.chat_request import ChatCompletionRequest
+from app.models.chat_completion.chat_response import ChatCompletionResponse
 from app.services.llm_service import LLMService
 from app.api.deps import get_llm_service
 
 router = APIRouter()
 
-@router.post("/completions", response_model=ChatResponse)
+@router.post("/completions", response_model=ChatCompletionResponse)
 async def create_chat_completion(
-    request: ChatRequest,
+    request: ChatCompletionRequest,
     llm_service: LLMService = Depends(get_llm_service)
 ):
     try: 

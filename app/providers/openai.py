@@ -1,5 +1,5 @@
 from openai import AsyncOpenAI
-from app.models.chat import ChatRequest
+from app.models.chat_completion import ChatCompletionRequest, ChatCompletionResponse
 from app.core.config import get_settings
 
 class OpenAIProvider:
@@ -8,7 +8,7 @@ class OpenAIProvider:
             api_key=api_key,
         )
 
-    async def send_chat_request(self, payload: ChatRequest):
+    async def send_chat_request(self, payload: ChatCompletionRequest) -> ChatCompletionResponse:
         raw_messages = [
             msg.model_dump() for msg in payload.messages
         ]
@@ -19,4 +19,4 @@ class OpenAIProvider:
             temperature=payload.temperature,
         )
 
-        return response
+        return ChatCompletionResponse(**response.model_dump())
