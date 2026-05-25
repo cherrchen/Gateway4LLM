@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.chat_completion.chat_request import ChatCompletionRequest
-from app.models.chat_completion.chat_response import ChatCompletionResponse
-from app.services.llm_service import LLMService
+from app.schemas.chat_completion import ChatCompletionRequest, ChatCompletionResponse
+from app.services.llm_service.llm_service import LLMService
 from app.api.deps import get_llm_service
 
 router = APIRouter()

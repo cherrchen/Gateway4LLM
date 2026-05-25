@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     app_mode: Literal["dev", "prod"] = "dev"
 
     openai_api_key: str = "example-api-key"
+    database_url: str = "sqlite+aiosqlite:///db.sqlite"
 
     model_config = SettingsConfigDict(
         env_file=".env",

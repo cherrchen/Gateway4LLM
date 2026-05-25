@@ -1,6 +1,6 @@
 from fastapi import Depends
 from app.core.config import Settings, get_settings
-from app.services.llm_service import LLMService
+from app.services.llm_service.llm_service import LLMService
 
 def get_openai_provider(settings: Settings = Depends(get_settings)):
     if settings.app_mode == "prod":

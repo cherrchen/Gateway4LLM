@@ -1,5 +1,5 @@
 from openai import AsyncOpenAI
-from app.models.chat_completion import ChatCompletionRequest, ChatCompletionResponse
+from app.schemas.chat_completion import ChatCompletionRequest, ChatCompletionResponse
 from app.core.config import get_settings
 
 class OpenAIProvider:

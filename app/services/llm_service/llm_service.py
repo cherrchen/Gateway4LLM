@@ -1,6 +1,5 @@
 from app.providers.openai import OpenAIProvider
-from app.models.chat_completion.chat_request import ChatCompletionRequest
-from app.models.chat_completion.chat_response import ChatCompletionResponse
+from app.schemas.chat_completion import ChatCompletionRequest, ChatCompletionResponse
 
 class LLMService:
     def __init__(self, openai_provider: OpenAIProvider) -> None:
@@ -10,6 +9,6 @@ class LLMService:
         if request.provider == "openai":
             raw_res = await self.openai_provider.send_chat_request(request)
         else:
-            raise ValueError(f"Unsupport provider: {request.provider}")
+            raise ValueError(f"Unsupported provider: {request.provider}")
         
         return raw_res

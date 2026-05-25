@@ -2,7 +2,7 @@ from typing import Literal, Any
 
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 
-from app.models.chat_completion.component import (
+from app.schemas.chat_completion.component import (
     ChatCompletionMessageParam, 
     ChatCompletionAudioParam, 
     ChatCompletionFuntionCallOption, 
@@ -15,6 +15,8 @@ from app.models.chat_completion.component import (
     ChatCompletionToolChoiceOption, 
     ChatCompletionTool, 
     )
+
+Messages = list[ChatCompletionMessageParam]
 
 class ChatCompletionRequest(BaseModel):
     provider: str = "openai"

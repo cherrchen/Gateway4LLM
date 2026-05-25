@@ -1,6 +1,6 @@
 import asyncio
 
-from app.models.chat_completion import ChatCompletionRequest, ChatCompletionResponse
+from app.schemas.chat_completion import ChatCompletionRequest, ChatCompletionResponse
 
 mock_response_data = {
     "id": "chatcmpl-9A2b3c4d5e6f7g8h9i0j",
