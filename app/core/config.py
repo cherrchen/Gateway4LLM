@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     openai_api_key: str = "example-api-key"
     database_url: str = "sqlite+aiosqlite:///db.sqlite"
 
+    jwt_secret_key: str = "set-as-random-key-in-your-environment"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
+
+    api_key_provider_note: str = "gate"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

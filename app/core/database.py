@@ -5,6 +5,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.config import get_settings
 from app.models.base import Base
+from app.models import *
 
 settings = get_settings()
 

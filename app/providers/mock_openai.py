@@ -9,14 +9,14 @@ mock_response_data = {
         {
             "finish_reason": "stop",
             "index": 0,
-            "logprobs": {
-                "content": {
-                    "token": "Hello",
-                    "bytes": [72, 101, 108, 108, 111],
-                    "logprob": -0.15,
-                    "top_logprobs": [{"token": "Hi", "logprob": -1.2}]
-                }
-            },
+            # "logprobs": {
+            #     "content": {
+            #         "token": "Hello",
+            #         "bytes": [72, 101, 108, 108, 111],
+            #         "logprob": -0.15,
+            #         "top_logprobs": [{"token": "Hi", "logprob": -1.2}]
+            #     }
+            # },
             "message": {
                 "content": "Hello! How can I help you today?",
                 "refusal": "",
