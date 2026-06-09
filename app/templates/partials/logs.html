@@ -1,0 +1,25 @@
+{% if logs %}
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>时间</th><th>路由</th><th>Provider</th><th>接口</th><th>状态</th><th>耗时</th><th>Key</th></tr></thead>
+    <tbody>
+    {% for log in logs %}
+      <tr>
+        <td>{{ log.created_at }}</td>
+        <td>{{ log.route }}</td>
+        <td>{{ log.provider }}</td>
+        <td>{{ log.source_interface }} -> {{ log.target_interface }}</td>
+        <td>{{ log.status_code }}</td>
+        <td>{{ log.duration_ms }}ms</td>
+        <td><code>{{ log.api_key_prefix }}</code></td>
+      </tr>
+      {% if log.error %}
+      <tr><td colspan="7" class="error-row">{{ log.error }}</td></tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">暂无业务日志</div>
+{% endif %}

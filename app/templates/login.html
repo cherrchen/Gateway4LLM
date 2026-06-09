@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gateway4LLM</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="panel">
+      <div class="panel-head">
+        <h1>Gateway4LLM</h1>
+        <span>管理入口</span>
+      </div>
+      <form class="stack" hx-post="/ui/login" hx-target="#auth-status">
+        <label>邮箱<input name="email" type="email" required autocomplete="email"></label>
+        <label>密码<input name="password" type="password" required autocomplete="current-password"></label>
+        <button type="submit">登录</button>
+      </form>
+      <div id="auth-status" class="status"></div>
+    </section>
+    <section class="panel muted-panel">
+      <h2>首次使用</h2>
+      <form class="stack" method="post" action="/ui/register">
+        <label>邮箱<input name="email" type="email" required></label>
+        <label>密码<input name="password" type="password" required minlength="8"></label>
+        <button type="submit" class="secondary">创建账号</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

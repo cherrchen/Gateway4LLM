@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gateway4LLM 控制台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Gateway4LLM</h1>
+      <span>{{ user.email }}</span>
+    </div>
+    <form method="post" action="/ui/logout"><button class="ghost">退出</button></form>
+  </header>
+  <main class="layout">
+    <section class="panel span-2">
+      <div class="section-head">
+        <h2>API Key</h2>
+        <form hx-post="/ui/keys" hx-target="#keys" hx-swap="innerHTML" class="inline-form">
+          <input name="name" placeholder="Key 名称" required>
+          <button type="submit">创建</button>
+        </form>
+      </div>
+      <div id="keys" hx-get="/ui/keys" hx-trigger="load" hx-swap="innerHTML">
+        <div class="loading">加载中...</div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>网关测试</h2>
+      <form class="stack" hx-post="/ui/gateway-test" hx-target="#gateway-result">
+        <label>业务 API Key<input name="api_key" required placeholder="g4l_live_..."></label>
+        <label>接口
+          <select name="interface">
+            <option value="chat">OpenAI Chat</option>
+            <option value="responses">OpenAI Responses</option>
+            <option value="anthropic">Anthropic Messages</option>
+          </select>
+        </label>
+        <label>Prompt<textarea name="prompt" rows="4">Say hello from the gateway.</textarea></label>
+        <button type="submit">发送</button>
+      </form>
+      <div id="gateway-result" class="result empty">暂无结果</div>
+    </section>
+    <section class="panel span-3">
+      <div class="section-head">
+        <h2>业务日志</h2>
+        <form hx-get="/ui/logs" hx-target="#logs" class="inline-form">
+          <select name="provider">
+            <option value="">全部</option>
+            <option value="mock">mock</option>
+            <option value="openai">openai</option>
+            <option value="anthropic">anthropic</option>
+          </select>
+          <button type="submit" class="secondary">筛选</button>
+        </form>
+      </div>
+      <div id="logs" hx-get="/ui/logs" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <div class="loading">加载中...</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
