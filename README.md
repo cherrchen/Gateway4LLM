@@ -1,6 +1,6 @@
 # Gateway4LLM
 
-FastAPI 后端 LLM 网关，支持用户 JWT 登录、业务 Bearer API Key、OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、关键操作日志和 HTMX 演示界面。
+FastAPI 后端 LLM 网关，支持用户 JWT 登录、业务 Bearer API Key、OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Provider Registry、模型白名单、关键操作日志和 HTMX 管理界面。
 
 ## 环境
 
@@ -13,6 +13,7 @@ FastAPI 后端 LLM 网关，支持用户 JWT 登录、业务 Bearer API Key、Op
 
 ```powershell
 uv sync --python 3.13
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -22,7 +23,7 @@ uv run uvicorn app.main:app --reload
 http://127.0.0.1:8000/
 ```
 
-首次创建的用户会自动成为管理员。演示界面可以登录、创建/撤销业务 API Key、查看日志、发起 mock 网关请求。
+首次创建的用户会自动成为管理员。管理界面可以登录、创建/撤销业务 API Key、配置 Provider、配置可请求模型、测试 Provider 连通性、查看日志、发起 mock 网关请求。
 
 ## 配置
 
@@ -33,7 +34,8 @@ http://127.0.0.1:8000/
 | `G4L_DATABASE_URL` | `sqlite:///./gateway4llm.db` | SQLite 或 PostgreSQL URL |
 | `G4L_JWT_SECRET` | `change-me-in-production` | JWT 签名密钥，生产必须替换 |
 | `G4L_API_KEY_HASH_SECRET` | `change-me-api-key-pepper` | API Key HMAC 哈希 pepper，生产必须替换 |
-| `G4L_DEFAULT_PROVIDER` | `mock` | 默认上游：`mock`、`openai`、`anthropic` |
+| `G4L_DEFAULT_PROVIDER` | `mock` | 环境默认 provider，当请求、API Key 和管理面板默认值都未配置时使用 |
+| `G4L_DEFAULT_MODEL` | `mock-model` | 环境默认模型，当请求、API Key、provider 和模型默认值都未配置时使用 |
 | `G4L_DEFAULT_TARGET_INTERFACE` | `same` | 默认目标接口：`same`、`chat`、`responses`、`anthropic` |
 | `G4L_OPENAI_API_KEY` | 空 | OpenAI 上游密钥 |
 | `G4L_ANTHROPIC_API_KEY` | 空 | Anthropic 上游密钥 |
@@ -46,6 +48,149 @@ PostgreSQL 示例：
 $env:G4L_DATABASE_URL="postgresql://user:password@localhost:5432/gateway4llm"
 uv run uvicorn app.main:app --reload
 ```
+
+## 数据库迁移
+
+Schema 变更由 Alembic 管理，应用启动时会执行 `alembic upgrade head` 并 seed 内置 mock/openai/anthropic 配置。不要把临时补列逻辑放在启动路径里长期维护。
+
+常用命令：
+
+```powershell
+uv run alembic revision --autogenerate -m "describe schema change"
+uv run alembic upgrade head
+```
+
+当前初始 migration 会创建 `User`、`BusinessApiKey`、`GatewayLog`、`ProviderConfig`、`ModelConfig`，并包含 Business API Key 的 `default_provider`、`default_model`、`allowed_models` policy 字段。
+
+## Provider Registry 架构
+
+网关不再在路由或 `app/upstream.py` 中硬编码 provider 分支。请求链路现在是：
+
+1. 读取入口接口：`chat`、`responses` 或 `anthropic`。
+2. 按优先级解析 provider、模型和目标接口。
+3. 校验 ProviderConfig、ModelConfig、API Key 策略、接口支持和 streaming 支持。
+4. 将对外模型名映射为上游真实模型名，并合并模型默认参数。
+5. 调用 `convert_request` 转换请求格式。
+6. 从 `provider_registry` 获取 provider 类型并调用 `send` 或 `stream`。
+7. 写入脱敏日志。
+
+内置 provider 类型：
+
+- `mock`：本地可预测响应，测试默认不依赖真实密钥。
+- `openai`：OpenAI Chat Completions / Responses。
+- `anthropic`：Anthropic Messages。
+
+运行时注册 provider：
+
+```python
+from app.providers.mock import MockProvider
+from app.providers.registry import provider_registry
+
+provider_registry.register(MockProvider())
+provider = provider_registry.get("mock")
+all_providers = provider_registry.list()
+```
+
+新增 provider 类型的最小示例：
+
+```python
+from app.providers.base import GatewayProvider, ProviderResponse
+
+
+class AcmeProvider(GatewayProvider):
+    name = "acme"
+    display_name = "Acme"
+    supported_interfaces = {"chat"}
+    supports_streaming = False
+
+    async def send(self, interface, body, config, model):
+        self.validate_config(config)
+        return ProviderResponse(status_code=200, body={"ok": True})
+
+    def stream(self, interface, body, config, model):
+        raise NotImplementedError
+```
+
+然后在启动时注册：
+
+```python
+provider_registry.register(AcmeProvider())
+```
+
+## Provider 和模型配置
+
+管理面板新增两个区域：
+
+- Provider 管理：查看、创建、编辑、启用/禁用 provider，设置显示名称、类型、base URL、密钥环境变量引用、默认目标接口、默认模型、streaming、超时、系统默认，并测试连通性。
+- 模型管理：查看、创建、编辑、启用/禁用模型，设置 provider、对外模型名、上游真实模型名、支持接口、默认目标接口、默认参数、streaming、备注和默认模型。
+
+REST 管理接口：
+
+- `GET /api/provider-types`
+- `GET /api/providers`
+- `GET /api/providers/{provider_id}`
+- `POST /api/providers`
+- `PATCH /api/providers/{provider_id}`
+- `POST /api/providers/{provider_id}/enable`
+- `POST /api/providers/{provider_id}/disable`
+- `POST /api/providers/{provider_id}/set-default`
+- `DELETE /api/providers/{provider_id}`
+- `POST /api/providers/{provider_id}/test`
+- `GET /api/models`
+- `GET /api/models/{model_id}`
+- `POST /api/models`
+- `PATCH /api/models/{model_id}`
+- `POST /api/models/{model_id}/enable`
+- `POST /api/models/{model_id}/disable`
+- `POST /api/models/{model_id}/set-default`
+- `DELETE /api/models/{model_id}`
+- `GET /api/settings/routing`
+- `PATCH /api/settings/routing`
+
+`DELETE /api/providers/{provider_id}` 和 `DELETE /api/models/{model_id}` 会返回明确错误：当前设计不支持硬删除，只支持禁用，以保留模型、策略和历史日志关联。
+
+新增模型配置示例：
+
+```json
+{
+  "provider_config_id": 1,
+  "public_model_name": "gpt-4.1-mini",
+  "upstream_model_name": "gpt-4.1-mini",
+  "supported_interfaces": ["chat", "responses"],
+  "supports_streaming": true,
+  "default_target_interface": "same",
+  "default_parameters": {"temperature": 0.2},
+  "is_enabled": true
+}
+```
+
+Provider 选择优先级：
+
+1. 请求头 `X-Gateway-Provider`
+2. 请求体 `gateway.provider`
+3. API Key 绑定的默认 provider
+4. 管理面板中标记为系统默认的 ProviderConfig
+5. 环境变量 `G4L_DEFAULT_PROVIDER`
+
+目标接口选择优先级：
+
+1. 请求头 `X-Gateway-Target-Interface`
+2. 请求体 `gateway.target_interface`
+3. 模型配置的默认目标接口
+4. Provider 配置的默认目标接口
+5. 环境变量 `G4L_DEFAULT_TARGET_INTERFACE`
+
+如果目标接口是 `same`，会使用当前入口接口。
+
+模型选择和映射规则：
+
+1. 优先使用请求体原始 `model`。
+2. 如果请求体没有 `model`，使用 API Key 默认模型。
+3. 其次使用 Provider 配置默认模型。
+4. 其次使用该 Provider 下标记为默认的 ModelConfig。
+5. 最后使用 `G4L_DEFAULT_MODEL`。
+
+请求中的对外模型名必须存在于当前 Provider 的 ModelConfig 且处于启用状态。转发前会把 `public_model_name` 替换为 `upstream_model_name`，并合并 `default_parameters`。
 
 ## 鉴权流程
 
@@ -63,8 +208,27 @@ Authorization: Bearer <jwt>
 - `GET /api/auth/me`
 - `POST /api/keys`
 - `GET /api/keys`
+- `PATCH /api/keys/{key_id}`
 - `POST /api/keys/{key_id}/revoke`
 - `GET /api/logs`
+- `GET /api/provider-types`
+- `GET /api/providers`
+- `GET /api/providers/{provider_id}`
+- `POST /api/providers`
+- `PATCH /api/providers/{provider_id}`
+- `POST /api/providers/{provider_id}/enable`
+- `POST /api/providers/{provider_id}/disable`
+- `POST /api/providers/{provider_id}/set-default`
+- `POST /api/providers/{provider_id}/test`
+- `GET /api/models`
+- `GET /api/models/{model_id}`
+- `POST /api/models`
+- `PATCH /api/models/{model_id}`
+- `POST /api/models/{model_id}/enable`
+- `POST /api/models/{model_id}/disable`
+- `POST /api/models/{model_id}/set-default`
+- `GET /api/settings/routing`
+- `PATCH /api/settings/routing`
 
 业务系统使用用户签发的 Bearer API Key：
 
@@ -73,6 +237,14 @@ Authorization: Bearer g4l_live_...
 ```
 
 API Key 只在创建时返回一次，数据库只保存 HMAC-SHA256 哈希和短前缀。
+
+API Key policy 可通过创建或 `PATCH /api/keys/{key_id}` 设置：
+
+- `default_provider`
+- `default_model`
+- `allowed_models`
+
+`allowed_models` 对外以数组呈现；数据库当前可继续存 JSON 字符串，但读写都由 service 层封装。已 revoke 的 API Key 不能更新策略，也不能继续调用网关。
 
 ## 网关接口
 
@@ -84,10 +256,10 @@ API Key 只在创建时返回一次，数据库只保存 HMAC-SHA256 哈希和�
 
 | Header | 说明 |
 | --- | --- |
-| `X-Gateway-Provider` | `mock`、`openai`、`anthropic` |
-| `X-Gateway-Target-Interface` | `chat`、`responses`、`anthropic` |
+| `X-Gateway-Provider` | ProviderConfig 的 `name`，例如 `mock`、`openai`、`anthropic` |
+| `X-Gateway-Target-Interface` | `same`、`chat`、`responses`、`anthropic` |
 
-默认 `mock` 上游会返回可预测响应，便于本地开发和测试。
+默认启动会创建内置 `mock` ProviderConfig 和 `mock-model` ModelConfig。`mock` 上游会返回可预测响应，便于本地开发和测试。
 
 ## 格式转换
 
@@ -119,6 +291,18 @@ API Key 只在创建时返回一次，数据库只保存 HMAC-SHA256 哈希和�
 - live OpenAI / Anthropic 上游按目标接口透传 SSE 字节流。
 - 流式日志会记录请求开始和元信息，不保存完整流式响应体。
 - 跨供应商流式事件格式不会二次转换为另一家供应商的事件协议。
+- 如果 provider 类型、ProviderConfig 或 ModelConfig 禁用了 streaming，请求会返回清晰的 400 错误。
+
+## 密钥管理
+
+ProviderConfig 支持使用环境变量引用配置上游密钥，例如：
+
+```text
+env:OPENAI_API_KEY
+G4L_OPENAI_API_KEY
+```
+
+API 响应和 HTMX 管理页面不会显示 `api_key_secret_ref` 的完整值，日志也不会记录 Authorization、上游 provider key、token、secret 或敏感 header。生产环境建议接入 KMS、Vault 或云厂商 Secret Manager，只在数据库保存密钥引用，不保存真实明文密钥。
 
 ## 日志与脱敏
 
@@ -143,9 +327,10 @@ app/routers/
     auth.py                # /api/auth
     keys.py                # /api/keys
     logs.py                # /api/logs
+    providers.py           # /api/providers, /api/models
   gateway/
     __init__.py            # 业务网关聚合
-    common.py              # 网关共享处理、日志、provider/接口选择
+    common.py              # 网关共享处理、解析配置、调用 provider、日志
     chat.py                # /v1/chat/completions
     responses.py           # /v1/responses
     anthropic.py           # /v1/messages
@@ -155,8 +340,17 @@ app/routers/
     auth.py                # /ui/login, /ui/register, /ui/logout
     keys.py                # /ui/keys
     logs.py                # /ui/logs
+    providers.py           # /ui/providers, /ui/models
     gateway_test.py        # /ui/gateway-test
     templates.py           # Jinja2Templates 实例
+app/providers/
+  base.py                  # Provider 抽象和 ProviderResponse
+  registry.py              # ProviderRegistry
+  mock.py                  # mock provider
+  openai.py                # OpenAI provider
+  anthropic.py             # Anthropic provider
+app/services/
+  provider_configs.py      # ProviderConfig/ModelConfig service 和网关解析规则
 ```
 
 ## 验证

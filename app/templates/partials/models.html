@@ -1,0 +1,141 @@
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
+
+<div class="toolbar">
+  <form hx-get="/ui/models" hx-target="#models" hx-swap="innerHTML" class="filter-bar">
+    <input type="search" name="search" value="{{ search or '' }}" placeholder="Search public or upstream model">
+    <select name="provider_id">
+      <option value="">All Providers</option>
+      {% for provider in providers %}
+      <option value="{{ provider.id }}" {% if provider_id == provider.id %}selected{% endif %}>{{ provider.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      <option value="">All Status</option>
+      <option value="enabled" {% if status == "enabled" %}selected{% endif %}>Enabled</option>
+      <option value="disabled" {% if status == "disabled" %}selected{% endif %}>Disabled</option>
+    </select>
+    <button class="secondary" type="submit">筛选</button>
+  </form>
+</div>
+
+<details class="create-drawer">
+  <summary>新增 GatewayModel 映射</summary>
+  <form hx-post="/ui/models" hx-target="#models" hx-swap="innerHTML" class="manage-form">
+    <label>Provider
+      <select name="provider_config_id" required>
+        {% for provider in providers %}
+        <option value="{{ provider.id }}">{{ provider.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>GatewayModel<input name="public_model_name" placeholder="public: gpt-4.1-mini" required></label>
+    <label>ProviderModel<input name="upstream_model_name" placeholder="upstream: gpt-4.1-mini" required></label>
+    <label>Default Target
+      <select name="default_target_interface">
+        <option value="same">same</option>
+        <option value="chat">chat</option>
+        <option value="responses">responses</option>
+        <option value="anthropic">anthropic</option>
+      </select>
+    </label>
+    <label>Default Parameters<input name="default_parameters" value="{}" placeholder='{"temperature":0.2}'></label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="chat" checked> chat</label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="responses" checked> responses</label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="anthropic" checked> anthropic</label>
+    <label class="check"><input type="checkbox" name="supports_streaming" value="true" checked> streaming</label>
+    <label class="check"><input type="checkbox" name="is_enabled" value="true" checked> enabled</label>
+    <label class="check"><input type="checkbox" name="is_default" value="true"> default</label>
+    <label>Notes<input name="notes" placeholder="routing note or tag"></label>
+    <button type="submit">Create GatewayModel</button>
+  </form>
+</details>
+
+{% if models %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>GatewayModel</th>
+        <th>ProviderModel</th>
+        <th>Provider</th>
+        <th>Interfaces</th>
+        <th>Routing</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for model in models %}
+      <tr>
+        <td>
+          <strong>{{ model.public_model_name }}</strong>
+          <span class="subtext">Public model name used by clients</span>
+        </td>
+        <td>
+          <code>{{ model.upstream_model_name }}</code>
+          <span class="subtext">Internal model from provider</span>
+        </td>
+        <td><code>{{ provider_names.get(model.provider_config_id, model.provider_config_id) }}</code></td>
+        <td>
+          <div class="badge-row">
+            {% for item in model.supported_interfaces %}
+            <span class="badge neutral-badge">{{ item }}</span>
+            {% endfor %}
+          </div>
+        </td>
+        <td>
+          <code>{{ model.default_target_interface }}</code>
+          {% if model.default_parameters %}
+          <span class="subtext">{{ model.default_parameters }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if model.is_enabled %}
+          <span class="badge success-badge">enabled</span>
+          {% else %}
+          <span class="badge neutral-badge">disabled / 禁用</span>
+          {% endif %}
+          {% if model.is_default %}<span class="badge">default</span>{% endif %}
+        </td>
+        <td>
+          <details class="row-actions">
+            <summary>Edit</summary>
+            <form id="model-{{ model.id }}" hx-post="/ui/models/{{ model.id }}" hx-target="#models" hx-swap="innerHTML" class="row-form">
+              <input name="public_model_name" value="{{ model.public_model_name }}" aria-label="public model name">
+              <input name="upstream_model_name" value="{{ model.upstream_model_name }}" aria-label="upstream model name">
+              <select name="default_target_interface">
+                {% for item in ["same", "chat", "responses", "anthropic"] %}
+                <option value="{{ item }}" {% if model.default_target_interface == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+              </select>
+              <input name="default_parameters" value='{{ model.default_parameters | tojson }}'>
+              {% for item in ["chat", "responses", "anthropic"] %}
+              <label class="check"><input type="checkbox" name="supported_interfaces" value="{{ item }}" {% if item in model.supported_interfaces %}checked{% endif %}> {{ item }}</label>
+              {% endfor %}
+              <label class="check"><input type="checkbox" name="supports_streaming" value="true" {% if model.supports_streaming %}checked{% endif %}> streaming</label>
+              <label class="check"><input type="checkbox" name="is_enabled" value="true" {% if model.is_enabled %}checked{% endif %}> enabled</label>
+              <label class="check"><input type="checkbox" name="is_default" value="true" {% if model.is_default %}checked{% endif %}> default</label>
+              <input name="notes" value="{{ model.notes or '' }}" placeholder="notes">
+              <button class="small" type="submit">Save</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination-row">
+  <span>Showing {{ models|length }} gateway models</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
+{% else %}
+<div class="empty-state strong">
+  <h3>No gateway models configured yet.</h3>
+  <p>Create a public model mapping before business clients call the gateway.</p>
+  <button class="secondary" disabled>Create GatewayModel</button>
+</div>
+{% endif %}

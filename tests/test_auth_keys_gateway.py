@@ -28,10 +28,32 @@ def test_user_auth_and_api_key_lifecycle(client: TestClient) -> None:
     response = client.get("/api/keys", headers=headers)
     assert response.status_code == 200
     assert len(response.json()) == 1
+    assert response.json()[0]["allowed_models"] is None
+
+    response = client.patch(
+        f"/api/keys/{created['id']}",
+        json={
+            "name": "demo policy",
+            "default_provider": "mock",
+            "default_model": "mock-model",
+            "allowed_models": ["mock-model"],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["default_provider"] == "mock"
+    assert response.json()["allowed_models"] == ["mock-model"]
 
     response = client.post(f"/api/keys/{created['id']}/revoke", headers=headers)
     assert response.status_code == 200
     assert response.json()["is_revoked"] is True
+
+    response = client.patch(
+        f"/api/keys/{created['id']}",
+        json={"default_model": "other"},
+        headers=headers,
+    )
+    assert response.status_code == 400
 
     response = client.post(
         "/v1/chat/completions",
@@ -60,6 +82,25 @@ def test_gateway_mock_request_records_redacted_log(client: TestClient) -> None:
     assert logs[0]["provider"] == "mock"
     assert created["api_key"] not in str(logs[0])
     assert "Authorization" not in str(logs[0])
+    assert "x-api-key" not in str(logs[0]).lower()
+
+
+def test_api_key_allowed_models_policy_is_enforced(client: TestClient) -> None:
+    token = register_and_login(client)
+    auth_headers = {"Authorization": f"Bearer {token}"}
+    created = client.post(
+        "/api/keys",
+        json={"name": "limited", "allowed_models": ["mock-model"]},
+        headers=auth_headers,
+    ).json()
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "mock", "messages": [{"role": "user", "content": "hello"}]},
+        headers={"Authorization": f"Bearer {created['api_key']}", "X-Gateway-Provider": "mock"},
+    )
+    assert response.status_code == 403
+    assert "not allowed" in response.json()["detail"]
 
 
 def test_missing_or_invalid_business_key_rejected(client: TestClient) -> None:

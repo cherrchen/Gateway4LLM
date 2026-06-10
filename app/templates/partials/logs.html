@@ -1,25 +1,49 @@
 {% if logs %}
 <div class="table-wrap">
   <table>
-    <thead><tr><th>时间</th><th>路由</th><th>Provider</th><th>接口</th><th>状态</th><th>耗时</th><th>Key</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Route</th>
+        <th>API Key</th>
+        <th>Provider</th>
+        <th>Interface</th>
+        <th>Status</th>
+        <th>Latency</th>
+        <th>Error</th>
+      </tr>
+    </thead>
     <tbody>
     {% for log in logs %}
-      <tr>
+      <tr class="{% if log.status_code >= 400 %}error-tint{% endif %}">
         <td>{{ log.created_at }}</td>
-        <td>{{ log.route }}</td>
+        <td><code>{{ log.route }}</code></td>
+        <td><code>{{ log.api_key_prefix or "-" }}</code></td>
         <td>{{ log.provider }}</td>
         <td>{{ log.source_interface }} -> {{ log.target_interface }}</td>
-        <td>{{ log.status_code }}</td>
+        <td>
+          {% if log.status_code < 400 %}
+          <span class="badge success-badge">{{ log.status_code }}</span>
+          {% else %}
+          <span class="badge danger">{{ log.status_code }}</span>
+          {% endif %}
+        </td>
         <td>{{ log.duration_ms }}ms</td>
-        <td><code>{{ log.api_key_prefix }}</code></td>
+        <td class="truncate-cell">{{ log.error or "-" }}</td>
       </tr>
-      {% if log.error %}
-      <tr><td colspan="7" class="error-row">{{ log.error }}</td></tr>
-      {% endif %}
     {% endfor %}
     </tbody>
   </table>
 </div>
+<div class="pagination-row">
+  <span>Showing {{ logs|length }} logs</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
 {% else %}
-<div class="empty">暂无业务日志</div>
+<div class="empty-state strong">
+  <h3>No logs match your filters.</h3>
+  <p>Try a different provider, status, or search term. Sensitive headers remain hidden by default.</p>
+  <button class="ghost" disabled>Clear Filters</button>
+</div>
 {% endif %}

@@ -5,25 +5,19 @@ from typing import Any
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+import app.providers  # noqa: F401
 from app.conversions import convert_request
-from app.core.config import get_settings
 from app.deps import ApiKeyPrincipalDep, SessionDep
 from app.models import GatewayLog
+from app.providers.registry import provider_registry
 from app.redaction import request_meta, response_meta
-from app.upstream import mock_response, mock_stream, post_upstream, stream_upstream
-
-
-def target_provider(body: dict[str, Any], header_provider: str | None) -> str:
-    raw_gateway = body.get("gateway")
-    gateway: dict[str, Any] = raw_gateway if isinstance(raw_gateway, dict) else {}
-    return (header_provider or gateway.get("provider") or get_settings().default_provider).lower()
-
-
-def target_interface(source: str, header_target: str | None) -> str:
-    configured = header_target or get_settings().default_target_interface
-    if configured == "same":
-        return source
-    return configured.lower()
+from app.services.provider_configs import (
+    prepare_upstream_body,
+    resolve_model_config,
+    resolve_provider_config,
+    resolve_target_interface,
+    validate_gateway_resolution,
+)
 
 
 def log_gateway_request(
@@ -68,48 +62,33 @@ async def handle_gateway_request(
 ) -> Response:
     started = time.perf_counter()
     body = await request.json()
-    provider = target_provider(body, x_gateway_provider)
-    target = target_interface(source_interface, x_gateway_target_interface)
-    converted = convert_request(body, source_interface, target)
-    stream = bool(converted.get("stream"))
+    _, api_key = principal
+    provider_name = x_gateway_provider or ""
+    target = x_gateway_target_interface or ""
 
     try:
-        if provider == "mock":
-            if stream:
-                log_gateway_request(
-                    session,
-                    principal,
-                    request,
-                    provider,
-                    source_interface,
-                    target,
-                    200,
-                    started,
-                    body,
-                    {},
-                )
-                return StreamingResponse(mock_stream(target), media_type="text/event-stream")
-            payload = mock_response(target, converted)
-            log_gateway_request(
-                session,
-                principal,
-                request,
-                provider,
-                source_interface,
-                target,
-                200,
-                started,
-                body,
-                payload,
-            )
-            return JSONResponse(payload)
+        provider_config = resolve_provider_config(session, body, api_key, x_gateway_provider)
+        provider_name = provider_config.name
+        model_config = resolve_model_config(session, body, api_key, provider_config)
+        target = resolve_target_interface(
+            body,
+            source_interface,
+            x_gateway_target_interface,
+            provider_config,
+            model_config,
+        )
+        upstream_body = prepare_upstream_body(body, model_config)
+        converted = convert_request(upstream_body, source_interface, target)
+        stream = bool(converted.get("stream"))
+        validate_gateway_resolution(provider_config, model_config, source_interface, target, stream)
+        provider = provider_registry.get(provider_config.provider_type)
 
         if stream:
             log_gateway_request(
                 session,
                 principal,
                 request,
-                provider,
+                provider_name,
                 source_interface,
                 target,
                 200,
@@ -118,35 +97,35 @@ async def handle_gateway_request(
                 {},
             )
             return StreamingResponse(
-                stream_upstream(provider, target, converted),
+                provider.stream(target, converted, provider_config, model_config),
                 media_type="text/event-stream",
             )
 
-        status_code, payload = await post_upstream(provider, target, converted)
+        result = await provider.send(target, converted, provider_config, model_config)
         log_gateway_request(
             session,
             principal,
             request,
-            provider,
+            provider_name,
             source_interface,
             target,
-            status_code,
+            result.status_code,
             started,
             body,
-            payload,
-            error=json.dumps(payload) if status_code >= 400 else None,
+            result.body,
+            error=json.dumps(result.body) if result.status_code >= 400 else None,
         )
-        return JSONResponse(payload, status_code=status_code)
+        return JSONResponse(result.body, status_code=result.status_code)
     except Exception as exc:
         error = str(exc)
         log_gateway_request(
             session,
             principal,
             request,
-            provider,
+            provider_name or "unknown",
             source_interface,
-            target,
-            500,
+            target or source_interface,
+            getattr(exc, "status_code", 500),
             started,
             body,
             {},

@@ -1,0 +1,43 @@
+{% if providers %}
+<div class="table-wrap compact-table">
+  <table>
+    <thead>
+      <tr><th>Provider</th><th>Type</th><th>Status</th><th>Health</th><th>Default</th><th>Timeout</th></tr>
+    </thead>
+    <tbody>
+    {% for provider in providers %}
+      <tr>
+        <td>
+          <strong>{{ provider.name }}</strong>
+          <span class="subtext">{{ provider.display_name }}</span>
+        </td>
+        <td><code>{{ provider.provider_type }}</code></td>
+        <td>
+          {% if provider.is_enabled %}
+          <span class="badge success-badge">enabled</span>
+          {% else %}
+          <span class="badge neutral-badge">disabled</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if provider.is_enabled and (provider.provider_type == "mock" or provider.api_key_env_var or provider.api_key_secret_ref) %}
+          <span class="badge success-badge">healthy</span>
+          {% elif provider.is_enabled %}
+          <span class="badge warning">needs key</span>
+          {% else %}
+          <span class="badge neutral-badge">not checked</span>
+          {% endif %}
+        </td>
+        <td>{% if provider.is_default %}<span class="badge">default</span>{% else %}-{% endif %}</td>
+        <td>{{ provider.timeout_seconds }}s</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <h3>No providers configured yet.</h3>
+  <p>Start by adding your first model provider.</p>
+</div>
+{% endif %}

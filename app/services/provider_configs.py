@@ -1,0 +1,672 @@
+import json
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import HTTPException, status
+from sqlmodel import select
+from sqlmodel.orm.session import Session
+
+import app.providers  # noqa: F401
+from app.core.config import get_settings
+from app.models import BusinessApiKey, ModelConfig, ProviderConfig, now_utc
+from app.providers.registry import provider_registry
+from app.schemas import (
+    ModelConfigCreate,
+    ModelConfigRead,
+    ModelConfigUpdate,
+    ProviderConfigCreate,
+    ProviderConfigRead,
+    ProviderConfigUpdate,
+    ProviderTestResult,
+    ProviderTypeRead,
+    RoutingSettingsRead,
+    RoutingSettingsUpdate,
+)
+
+INTERFACES = {"chat", "responses", "anthropic"}
+
+
+@dataclass(frozen=True)
+class GatewayResolution:
+    provider_config: ProviderConfig
+    model_config: ModelConfig
+    provider_type: str
+    source_interface: str
+    target_interface: str
+    upstream_body: dict[str, Any]
+
+
+def _json_loads_list(value: str | None) -> list[str]:
+    if not value:
+        return []
+    parsed = json.loads(value)
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed]
+
+
+def _json_loads_dict(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    parsed = json.loads(value)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _gateway_options(body: dict[str, Any]) -> dict[str, Any]:
+    value = body.get("gateway")
+    return value if isinstance(value, dict) else {}
+
+
+def provider_to_read(config: ProviderConfig) -> ProviderConfigRead:
+    return ProviderConfigRead(
+        **config.model_dump(exclude={"api_key_secret_ref"}),
+        api_key_configured=bool(config.api_key_env_var or config.api_key_secret_ref),
+    )
+
+
+def list_provider_types() -> list[ProviderTypeRead]:
+    rows: list[ProviderTypeRead] = []
+    for provider in sorted(provider_registry.list(), key=lambda item: item.name):
+        requires_key = provider.name != "mock"
+        rows.append(
+            ProviderTypeRead(
+                name=provider.name,
+                display_name=provider.display_name,
+                supported_interfaces=sorted(provider.supported_interfaces),
+                supports_streaming=provider.supports_streaming,
+                config_requirements={
+                    "api_key": "required" if requires_key else "not_required",
+                    "api_key_sources": ["api_key_env_var", "api_key_secret_ref"],
+                    "base_url": "optional",
+                },
+            )
+        )
+    return rows
+
+
+def model_to_read(model: ModelConfig) -> ModelConfigRead:
+    return ModelConfigRead(
+        **model.model_dump(exclude={"supported_interfaces", "default_parameters"}),
+        supported_interfaces=_json_loads_list(model.supported_interfaces),
+        default_parameters=_json_loads_dict(model.default_parameters),
+    )
+
+
+def ensure_default_configs(session: Session) -> None:
+    settings = get_settings()
+    mock = session.exec(select(ProviderConfig).where(ProviderConfig.name == "mock")).first()
+    if not mock:
+        mock = ProviderConfig(
+            name="mock",
+            display_name="Mock",
+            provider_type="mock",
+            default_target_interface="same",
+            default_model_name="mock-model",
+            supports_streaming=True,
+            is_enabled=True,
+            is_default=settings.default_provider == "mock",
+        )
+        session.add(mock)
+        session.commit()
+        session.refresh(mock)
+    _ensure_model(session, mock, "mock-model", "mock-model", is_default=True)
+    _ensure_model(session, mock, "mock", "mock-model", is_default=False)
+
+    for name, display_name, base_url, env_var in (
+        ("openai", "OpenAI", settings.openai_base_url, "G4L_OPENAI_API_KEY"),
+        ("anthropic", "Anthropic", settings.anthropic_base_url, "G4L_ANTHROPIC_API_KEY"),
+    ):
+        if not session.exec(select(ProviderConfig).where(ProviderConfig.name == name)).first():
+            session.add(
+                ProviderConfig(
+                    name=name,
+                    display_name=display_name,
+                    provider_type=name,
+                    base_url=base_url,
+                    api_key_env_var=env_var,
+                    default_target_interface="same" if name == "openai" else "anthropic",
+                    supports_streaming=True,
+                    is_enabled=False,
+                    is_default=settings.default_provider == name,
+                )
+            )
+    session.commit()
+
+
+def _ensure_model(
+    session: Session,
+    provider: ProviderConfig,
+    public_name: str,
+    upstream_name: str,
+    *,
+    is_default: bool,
+) -> None:
+    existing = session.exec(
+        select(ModelConfig).where(
+            ModelConfig.provider_config_id == provider.id,
+            ModelConfig.public_model_name == public_name,
+        )
+    ).first()
+    if existing:
+        return
+    session.add(
+        ModelConfig(
+            provider_config_id=provider.id or 0,
+            public_model_name=public_name,
+            upstream_model_name=upstream_name,
+            supported_interfaces=_json_dumps(["chat", "responses", "anthropic"]),
+            supports_streaming=True,
+            default_target_interface="same",
+            is_enabled=True,
+            is_default=is_default,
+        )
+    )
+    session.commit()
+
+
+def list_provider_configs(session: Session) -> list[ProviderConfigRead]:
+    rows = session.exec(select(ProviderConfig).order_by(ProviderConfig.name)).all()
+    return [provider_to_read(row) for row in rows]
+
+
+def get_provider_config(session: Session, provider_id: int) -> ProviderConfig:
+    config = session.get(ProviderConfig, provider_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Provider config not found")
+    return config
+
+
+def get_provider_config_read(session: Session, provider_id: int) -> ProviderConfigRead:
+    return provider_to_read(get_provider_config(session, provider_id))
+
+
+def get_provider_config_by_name(session: Session, name: str) -> ProviderConfig | None:
+    return session.exec(select(ProviderConfig).where(ProviderConfig.name == name.lower())).first()
+
+
+def create_provider_config(session: Session, payload: ProviderConfigCreate) -> ProviderConfigRead:
+    name = payload.name.lower()
+    if get_provider_config_by_name(session, name):
+        raise HTTPException(status_code=409, detail=f"Provider config already exists: {name}")
+    provider_registry.get(payload.provider_type)
+    _validate_target_interface(payload.default_target_interface)
+    config = ProviderConfig(
+        name=name,
+        display_name=payload.display_name or name,
+        provider_type=payload.provider_type.lower(),
+        base_url=payload.base_url or None,
+        api_key_env_var=payload.api_key_env_var or None,
+        api_key_secret_ref=payload.api_key_secret_ref or None,
+        default_target_interface=payload.default_target_interface.lower(),
+        default_model_name=payload.default_model_name or None,
+        supports_streaming=payload.supports_streaming,
+        timeout_seconds=payload.timeout_seconds,
+        is_enabled=payload.is_enabled,
+        is_default=payload.is_default,
+    )
+    session.add(config)
+    _clear_default_provider(session, config) if config.is_default else None
+    session.commit()
+    session.refresh(config)
+    return provider_to_read(config)
+
+
+def update_provider_config(
+    session: Session, provider_id: int, payload: ProviderConfigUpdate
+) -> ProviderConfigRead:
+    config = get_provider_config(session, provider_id)
+    values = payload.model_dump(exclude_unset=True)
+    if "default_target_interface" in values and values["default_target_interface"]:
+        _validate_target_interface(values["default_target_interface"])
+    for key, value in values.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        if key == "default_target_interface" and value:
+            value = value.lower()
+        setattr(config, key, value)
+    config.updated_at = now_utc()
+    session.add(config)
+    _clear_default_provider(session, config) if config.is_default else None
+    session.commit()
+    session.refresh(config)
+    return provider_to_read(config)
+
+
+def set_provider_enabled(session: Session, provider_id: int, enabled: bool) -> ProviderConfigRead:
+    config = get_provider_config(session, provider_id)
+    config.is_enabled = enabled
+    config.updated_at = now_utc()
+    session.add(config)
+    session.commit()
+    session.refresh(config)
+    return provider_to_read(config)
+
+
+def set_default_provider(session: Session, provider_id: int) -> ProviderConfigRead:
+    config = get_provider_config(session, provider_id)
+    if not config.is_enabled:
+        raise HTTPException(status_code=400, detail="Disabled provider cannot be set as default")
+    config.is_default = True
+    config.updated_at = now_utc()
+    session.add(config)
+    _clear_default_provider(session, config)
+    session.commit()
+    session.refresh(config)
+    return provider_to_read(config)
+
+
+def reject_provider_delete(provider_id: int) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail=(
+            f"Provider config {provider_id} cannot be hard-deleted. "
+            "Disable it instead to preserve model, policy, and log history."
+        ),
+    )
+
+
+def _clear_default_provider(session: Session, selected: ProviderConfig) -> None:
+    rows = session.exec(select(ProviderConfig).where(ProviderConfig.id != selected.id)).all()
+    for row in rows:
+        if row.is_default:
+            row.is_default = False
+            row.updated_at = now_utc()
+            session.add(row)
+
+
+def list_model_configs(session: Session, provider_id: int | None = None) -> list[ModelConfigRead]:
+    query = select(ModelConfig).order_by(ModelConfig.public_model_name)
+    if provider_id is not None:
+        query = query.where(ModelConfig.provider_config_id == provider_id)
+    rows = session.exec(query).all()
+    return [model_to_read(row) for row in rows]
+
+
+def get_model_config(session: Session, model_id: int) -> ModelConfig:
+    model = session.get(ModelConfig, model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model config not found")
+    return model
+
+
+def get_model_config_read(session: Session, model_id: int) -> ModelConfigRead:
+    return model_to_read(get_model_config(session, model_id))
+
+
+def create_model_config(session: Session, payload: ModelConfigCreate) -> ModelConfigRead:
+    provider = get_provider_config(session, payload.provider_config_id)
+    _validate_interfaces(payload.supported_interfaces)
+    _validate_target_interface(payload.default_target_interface)
+    if not payload.upstream_model_name.strip():
+        raise HTTPException(status_code=400, detail="upstream_model_name is required")
+    existing = session.exec(
+        select(ModelConfig).where(
+            ModelConfig.provider_config_id == provider.id,
+            ModelConfig.public_model_name == payload.public_model_name,
+        )
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Model config already exists for provider")
+    model = ModelConfig(
+        provider_config_id=provider.id or 0,
+        public_model_name=payload.public_model_name,
+        upstream_model_name=payload.upstream_model_name,
+        supported_interfaces=_json_dumps(payload.supported_interfaces),
+        supports_streaming=payload.supports_streaming,
+        default_target_interface=payload.default_target_interface.lower(),
+        default_parameters=_json_dumps(payload.default_parameters),
+        is_enabled=payload.is_enabled,
+        is_default=payload.is_default,
+        notes=payload.notes,
+    )
+    session.add(model)
+    _clear_default_model(session, model) if model.is_default else None
+    session.commit()
+    session.refresh(model)
+    return model_to_read(model)
+
+
+def update_model_config(
+    session: Session,
+    model_id: int,
+    payload: ModelConfigUpdate,
+) -> ModelConfigRead:
+    model = get_model_config(session, model_id)
+    values = payload.model_dump(exclude_unset=True)
+    if "supported_interfaces" in values and values["supported_interfaces"] is not None:
+        _validate_interfaces(values["supported_interfaces"])
+        values["supported_interfaces"] = _json_dumps(values["supported_interfaces"])
+    if "public_model_name" in values and values["public_model_name"] is not None:
+        duplicate = session.exec(
+            select(ModelConfig).where(
+                ModelConfig.provider_config_id == model.provider_config_id,
+                ModelConfig.public_model_name == values["public_model_name"],
+                ModelConfig.id != model.id,
+            )
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Model config already exists for provider")
+    if "upstream_model_name" in values and values["upstream_model_name"] is not None:
+        if not values["upstream_model_name"].strip():
+            raise HTTPException(status_code=400, detail="upstream_model_name is required")
+    if "default_parameters" in values and values["default_parameters"] is not None:
+        values["default_parameters"] = _json_dumps(values["default_parameters"])
+    if "default_target_interface" in values and values["default_target_interface"]:
+        _validate_target_interface(values["default_target_interface"])
+        values["default_target_interface"] = values["default_target_interface"].lower()
+    for key, value in values.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        setattr(model, key, value)
+    model.updated_at = now_utc()
+    session.add(model)
+    _clear_default_model(session, model) if model.is_default else None
+    session.commit()
+    session.refresh(model)
+    return model_to_read(model)
+
+
+def set_model_enabled(session: Session, model_id: int, enabled: bool) -> ModelConfigRead:
+    model = get_model_config(session, model_id)
+    model.is_enabled = enabled
+    model.updated_at = now_utc()
+    session.add(model)
+    session.commit()
+    session.refresh(model)
+    return model_to_read(model)
+
+
+def set_default_model(session: Session, model_id: int) -> ModelConfigRead:
+    model = get_model_config(session, model_id)
+    if not model.is_enabled:
+        raise HTTPException(status_code=400, detail="Disabled model cannot be set as default")
+    model.is_default = True
+    model.updated_at = now_utc()
+    session.add(model)
+    _clear_default_model(session, model)
+    session.commit()
+    session.refresh(model)
+    return model_to_read(model)
+
+
+def reject_model_delete(model_id: int) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
+        detail=(
+            f"Model config {model_id} cannot be hard-deleted. "
+            "Disable it instead to preserve routing, policy, and log history."
+        ),
+    )
+
+
+def _clear_default_model(session: Session, selected: ModelConfig) -> None:
+    rows = session.exec(
+        select(ModelConfig).where(
+            ModelConfig.provider_config_id == selected.provider_config_id,
+            ModelConfig.id != selected.id,
+        )
+    ).all()
+    for row in rows:
+        if row.is_default:
+            row.is_default = False
+            row.updated_at = now_utc()
+            session.add(row)
+
+
+def _validate_interfaces(values: list[str]) -> None:
+    if not values:
+        raise HTTPException(status_code=400, detail="supported_interfaces cannot be empty")
+    invalid = [value for value in values if value not in INTERFACES]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Unsupported interfaces: {', '.join(invalid)}")
+
+
+def _validate_target_interface(value: str) -> None:
+    target = value.lower()
+    if target != "same" and target not in INTERFACES:
+        raise HTTPException(status_code=400, detail=f"Unsupported target interface: {value}")
+
+
+def get_routing_settings(session: Session) -> RoutingSettingsRead:
+    settings = get_settings()
+    configured_default = session.exec(
+        select(ProviderConfig).where(ProviderConfig.is_default)
+    ).first()
+    default_model = None
+    if configured_default:
+        model = session.exec(
+            select(ModelConfig).where(
+                ModelConfig.provider_config_id == configured_default.id,
+                ModelConfig.is_default,
+            )
+        ).first()
+        default_model = model.public_model_name if model else configured_default.default_model_name
+    return RoutingSettingsRead(
+        default_provider=configured_default.name if configured_default else None,
+        default_model=default_model,
+        default_target_interface=(
+            configured_default.default_target_interface
+            if configured_default
+            else settings.default_target_interface
+        ),
+        environment_default_provider=settings.default_provider,
+        environment_default_model=settings.default_model,
+        environment_default_target_interface=settings.default_target_interface,
+    )
+
+
+def update_routing_settings(
+    session: Session,
+    payload: RoutingSettingsUpdate,
+) -> RoutingSettingsRead:
+    values = payload.model_dump(exclude_unset=True)
+    provider: ProviderConfig | None = None
+    if "default_provider" in values and values["default_provider"]:
+        provider = get_provider_config_by_name(session, str(values["default_provider"]))
+        if not provider:
+            raise HTTPException(status_code=400, detail="Default provider is not configured")
+        if not provider.is_enabled:
+            raise HTTPException(status_code=400, detail="Disabled provider cannot be default")
+        provider.is_default = True
+        _clear_default_provider(session, provider)
+    else:
+        provider = session.exec(select(ProviderConfig).where(ProviderConfig.is_default)).first()
+    if provider and "default_model" in values:
+        model_name = values["default_model"]
+        provider.default_model_name = (model_name or "").strip() or None
+        provider.updated_at = now_utc()
+    if provider and values.get("default_target_interface"):
+        _validate_target_interface(values["default_target_interface"])
+        provider.default_target_interface = values["default_target_interface"].lower()
+        provider.updated_at = now_utc()
+    if provider:
+        session.add(provider)
+    session.commit()
+    return get_routing_settings(session)
+
+
+def resolve_provider_name(
+    session: Session,
+    body: dict[str, Any],
+    api_key: BusinessApiKey,
+    header_provider: str | None,
+) -> str:
+    gateway = _gateway_options(body)
+    configured_default = session.exec(
+        select(ProviderConfig).where(ProviderConfig.is_default, ProviderConfig.is_enabled)
+    ).first()
+    provider = (
+        header_provider
+        or gateway.get("provider")
+        or api_key.default_provider
+        or (configured_default.name if configured_default else None)
+        or get_settings().default_provider
+    )
+    return str(provider).lower()
+
+
+def resolve_provider_config(
+    session: Session,
+    body: dict[str, Any],
+    api_key: BusinessApiKey,
+    header_provider: str | None,
+) -> ProviderConfig:
+    provider_name = resolve_provider_name(session, body, api_key, header_provider)
+    config = get_provider_config_by_name(session, provider_name)
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Provider is not configured: {provider_name}",
+        )
+    if not config.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Provider is disabled: {provider_name}",
+        )
+    provider_registry.get(config.provider_type)
+    return config
+
+
+def resolve_model_config(
+    session: Session,
+    body: dict[str, Any],
+    api_key: BusinessApiKey,
+    provider_config: ProviderConfig,
+) -> ModelConfig:
+    requested = body.get("model") or api_key.default_model or provider_config.default_model_name
+    if not requested:
+        default_model = session.exec(
+            select(ModelConfig).where(
+                ModelConfig.provider_config_id == provider_config.id,
+                ModelConfig.is_default,
+            )
+        ).first()
+        requested = (
+            default_model.public_model_name if default_model else get_settings().default_model
+        )
+    requested = str(requested)
+    _check_api_key_policy(api_key, requested)
+    model = session.exec(
+        select(ModelConfig).where(
+            ModelConfig.provider_config_id == provider_config.id,
+            ModelConfig.public_model_name == requested,
+        )
+    ).first()
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model is not configured for provider '{provider_config.name}': {requested}",
+        )
+    if not model.is_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Model is disabled: {requested}",
+        )
+    return model
+
+
+def _check_api_key_policy(api_key: BusinessApiKey, requested_model: str) -> None:
+    allowed = _json_loads_list(api_key.allowed_models)
+    if allowed and requested_model not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key is not allowed to use model: {requested_model}",
+        )
+
+
+def resolve_target_interface(
+    body: dict[str, Any],
+    source_interface: str,
+    header_target_interface: str | None,
+    provider_config: ProviderConfig,
+    model_config: ModelConfig,
+) -> str:
+    gateway = _gateway_options(body)
+    configured = (
+        header_target_interface
+        or gateway.get("target_interface")
+        or model_config.default_target_interface
+        or provider_config.default_target_interface
+        or get_settings().default_target_interface
+    )
+    target = str(configured).lower()
+    resolved = source_interface if target == "same" else target
+    if resolved not in INTERFACES:
+        raise HTTPException(status_code=400, detail=f"Unsupported target interface: {resolved}")
+    return resolved
+
+
+def prepare_upstream_body(body: dict[str, Any], model_config: ModelConfig) -> dict[str, Any]:
+    defaults = _json_loads_dict(model_config.default_parameters)
+    clean_body = {key: value for key, value in body.items() if key != "gateway"}
+    merged = {**defaults, **clean_body}
+    merged["model"] = model_config.upstream_model_name
+    return merged
+
+
+def validate_gateway_resolution(
+    provider_config: ProviderConfig,
+    model_config: ModelConfig,
+    source_interface: str,
+    target_interface: str,
+    stream: bool,
+) -> None:
+    provider = provider_registry.get(provider_config.provider_type)
+    provider.validate_config(provider_config)
+    model_interfaces = set(_json_loads_list(model_config.supported_interfaces))
+    if source_interface not in model_interfaces:
+        detail = (
+            f"Model '{model_config.public_model_name}' does not support "
+            f"source interface: {source_interface}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+    if target_interface not in model_interfaces:
+        detail = (
+            f"Model '{model_config.public_model_name}' does not support "
+            f"target interface: {target_interface}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+    if target_interface not in provider.supported_interfaces:
+        detail = (
+            f"Provider '{provider_config.name}' does not support "
+            f"target interface: {target_interface}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+    if stream and not provider.supports_streaming:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider does not support streaming: {provider_config.name}",
+        )
+    if stream and not provider_config.supports_streaming:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Streaming is disabled for provider: {provider_config.name}",
+        )
+    if stream and not model_config.supports_streaming:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Streaming is disabled for model: {model_config.public_model_name}",
+        )
+
+
+def test_provider_config(session: Session, provider_id: int) -> ProviderTestResult:
+    config = get_provider_config(session, provider_id)
+    try:
+        provider = provider_registry.get(config.provider_type)
+        provider.validate_config(config)
+    except HTTPException as exc:
+        return ProviderTestResult(ok=False, message=str(exc.detail))
+    return ProviderTestResult(ok=True, message=f"Provider '{config.name}' is ready")

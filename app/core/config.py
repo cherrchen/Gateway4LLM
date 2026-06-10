@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 12
     api_key_hash_secret: str = "change-me-api-key-pepper"
     default_provider: str = "mock"
+    default_model: str = "mock-model"
     default_target_interface: str = "same"
     upstream_timeout_seconds: float = 60.0
     openai_base_url: str = "https://api.openai.com/v1"

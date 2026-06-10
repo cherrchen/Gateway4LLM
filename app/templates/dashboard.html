@@ -3,64 +3,265 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gateway4LLM 控制台</title>
+  <title>{{ page_title }} · Gateway4LLM Admin</title>
   <link rel="stylesheet" href="/static/styles.css">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>Gateway4LLM</h1>
-      <span>{{ user.email }}</span>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/?page=dashboard" aria-label="Gateway4LLM Dashboard">
+        <span class="brand-mark">G4</span>
+        <span>
+          <strong>Gateway4LLM</strong>
+          <small>API Gateway Admin</small>
+        </span>
+      </a>
+      <nav class="side-tabs" aria-label="Main navigation">
+        <a class="{% if active_page == 'dashboard' %}active{% endif %}" href="/?page=dashboard">
+          <span class="tab-icon">D</span><span>Dashboard</span>
+        </a>
+        <a class="{% if active_page == 'providers' %}active{% endif %}" href="/?page=providers">
+          <span class="tab-icon">P</span><span>Providers</span>
+        </a>
+        <a class="{% if active_page == 'provider-models' %}active{% endif %}" href="/?page=provider-models">
+          <span class="tab-icon">PM</span><span>Provider Models</span>
+        </a>
+        <a class="{% if active_page == 'gateway-models' %}active{% endif %}" href="/?page=gateway-models">
+          <span class="tab-icon">GM</span><span>Gateway Models</span>
+        </a>
+        <a class="{% if active_page == 'routing' %}active{% endif %}" href="/?page=routing">
+          <span class="tab-icon">R</span><span>Routing Rules</span>
+        </a>
+        <a class="{% if active_page == 'api-keys' %}active{% endif %}" href="/?page=api-keys">
+          <span class="tab-icon">K</span><span>API Keys</span>
+        </a>
+        <a class="{% if active_page == 'logs' %}active{% endif %}" href="/?page=logs">
+          <span class="tab-icon">L</span><span>Logs</span>
+        </a>
+        <a class="{% if active_page == 'settings' %}active{% endif %}" href="/?page=settings">
+          <span class="tab-icon">S</span><span>Settings</span>
+        </a>
+      </nav>
+      <div class="sidebar-note">
+        <strong>Concept guardrail</strong>
+        <span>Provider 是服务商，ProviderModel 是上游模型，GatewayModel 是业务方看到的公开模型。</span>
+      </div>
+    </aside>
+
+    <div class="workbench">
+      <header class="topbar">
+        <div>
+          <h1>{{ page_title }}</h1>
+          <span>{{ page_subtitle }}</span>
+        </div>
+        <div class="topbar-actions">
+          <label class="global-search">
+            <span>Search</span>
+            <input type="search" placeholder="Provider, model, key prefix...">
+          </label>
+          <span class="env-chip">Local</span>
+          <form method="post" action="/ui/logout">
+            <button class="ghost" type="submit">退出</button>
+          </form>
+        </div>
+      </header>
+
+      <main class="page-main">
+        {% if active_page == "dashboard" %}
+        <section class="page-hero">
+          <div>
+            <h2>系统概览</h2>
+            <p>快速确认 Provider、GatewayModel、API Key 和请求日志状态。</p>
+          </div>
+          <button class="secondary" hx-get="/ui/dashboard-stats" hx-target="#dashboard-stats" hx-swap="innerHTML">刷新概览</button>
+        </section>
+        <div id="dashboard-stats" hx-get="/ui/dashboard-stats" hx-trigger="load" hx-swap="innerHTML">
+          <div class="loading">加载统计...</div>
+        </div>
+        <section class="dashboard-grid">
+          <article class="panel">
+            <div class="section-head compact">
+              <div>
+                <h2>Provider Health</h2>
+                <p>状态与连通性分开展示，避免把禁用误认为故障。</p>
+              </div>
+              <span class="badge warning">HTMX auto</span>
+            </div>
+            <div id="provider-health" hx-get="/ui/provider-health" hx-trigger="load, every 20s" hx-swap="innerHTML">
+              <div class="loading">加载 Provider 状态...</div>
+            </div>
+          </article>
+          <article class="panel">
+            <div class="section-head compact">
+              <div>
+                <h2>网关测试</h2>
+                <p>使用业务 API Key 验证入口接口和模型映射。</p>
+              </div>
+            </div>
+            <form class="stack" hx-post="/ui/gateway-test" hx-target="#gateway-result">
+              <label>业务 API Key<input name="api_key" required placeholder="g4l_live_..."></label>
+              <div class="form-grid two">
+                <label>接口
+                  <select name="interface">
+                    <option value="chat">OpenAI Chat</option>
+                    <option value="responses">Responses</option>
+                    <option value="anthropic">Anthropic Messages</option>
+                  </select>
+                </label>
+                <label>Provider
+                  <select name="provider">
+                    <option value="mock">mock</option>
+                    <option value="">默认策略</option>
+                  </select>
+                </label>
+              </div>
+              <label>Prompt<textarea name="prompt" rows="4">Say hello from the gateway.</textarea></label>
+              <button type="submit">发送测试请求</button>
+            </form>
+            <div id="gateway-result" class="result empty">暂无测试结果</div>
+          </article>
+        </section>
+
+        {% elif active_page == "providers" %}
+        <section class="section-block">
+          <div class="section-head">
+            <div>
+              <h2>Providers</h2>
+              <p>外部模型服务商配置，例如 OpenAI、Anthropic 或自定义兼容服务。</p>
+            </div>
+          </div>
+          <div id="providers-panel" hx-get="/ui/providers" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading">加载 Provider 列表...</div>
+          </div>
+        </section>
+
+        {% elif active_page == "provider-models" %}
+        <section class="section-block muted-section">
+          <div class="section-head">
+            <div>
+              <h2>Provider Models</h2>
+              <p>Internal model from provider. 当前后端尚未拆出独立 ProviderModel 表，本页先展示接入规划。</p>
+            </div>
+            <span class="badge warning">需要后端补充</span>
+          </div>
+          <div class="empty-state strong">
+            <h3>No provider model catalog yet.</h3>
+            <p>同步模型、模型健康、价格、能力标签和映射状态需要后端补充独立接口。</p>
+            <div class="empty-actions">
+              <button class="secondary" disabled>Sync Models</button>
+              <button class="ghost" disabled>Add ProviderModel Manually</button>
+            </div>
+          </div>
+        </section>
+
+        {% elif active_page == "gateway-models" %}
+        <section class="section-block">
+          <div class="section-head">
+            <div>
+              <h2>Gateway Models</h2>
+              <p>Public model name used by clients. 这里配置对外模型名到上游真实模型名的映射。</p>
+            </div>
+          </div>
+          <div id="models" hx-get="/ui/models" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading">加载 GatewayModel 列表...</div>
+          </div>
+        </section>
+
+        {% elif active_page == "routing" %}
+        <section class="section-block muted-section">
+          <div class="section-head">
+            <div>
+              <h2>Routing Rules</h2>
+              <p>Fixed、fallback、weighted、latency、cost optimized 和 custom 策略配置入口。</p>
+            </div>
+            <span class="badge warning">需要后端补充</span>
+          </div>
+          <div class="strategy-preview">
+            <div class="strategy-card active">
+              <strong>fixed</strong>
+              <span>唯一 ProviderModel</span>
+            </div>
+            <div class="strategy-card">
+              <strong>fallback</strong>
+              <span>Primary + 有序 fallback</span>
+            </div>
+            <div class="strategy-card">
+              <strong>weighted</strong>
+              <span>多模型权重与总和校验</span>
+            </div>
+            <div class="strategy-card">
+              <strong>custom</strong>
+              <span>JSON 规则与字段级校验</span>
+            </div>
+          </div>
+        </section>
+
+        {% elif active_page == "api-keys" %}
+        <section class="section-block">
+          <div class="section-head">
+            <div>
+              <h2>API Keys</h2>
+              <p>业务系统调用 Gateway 的凭证。完整 Key 只在创建后展示一次。</p>
+            </div>
+            <form hx-post="/ui/keys" hx-target="#keys" hx-swap="innerHTML" class="inline-form">
+              <input name="name" placeholder="Key 名称" required>
+              <button type="submit">创建 API Key</button>
+            </form>
+          </div>
+          <div id="keys" hx-get="/ui/keys" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading">加载 API Key...</div>
+          </div>
+        </section>
+
+        {% elif active_page == "logs" %}
+        <section class="section-block">
+          <div class="section-head">
+            <div>
+              <h2>Logs</h2>
+              <p>默认隐藏敏感 Header 和原始 Key，错误日志会突出展示。</p>
+            </div>
+            <form hx-get="/ui/logs" hx-target="#logs-table" hx-swap="innerHTML" class="inline-form">
+              <input type="search" name="search" placeholder="Key prefix / route / error">
+              <select name="provider">
+                <option value="">全部 Provider</option>
+                <option value="mock">mock</option>
+                <option value="openai">openai</option>
+                <option value="anthropic">anthropic</option>
+              </select>
+              <select name="status">
+                <option value="">全部状态</option>
+                <option value="success">success</option>
+                <option value="error">error</option>
+              </select>
+              <button type="submit" class="secondary">筛选</button>
+            </form>
+          </div>
+          <div id="logs-table" hx-get="/ui/logs" hx-trigger="load, every 10s" hx-swap="innerHTML">
+            <div class="loading">加载日志...</div>
+          </div>
+        </section>
+
+        {% elif active_page == "settings" %}
+        <section class="section-block muted-section">
+          <div class="section-head">
+            <div>
+              <h2>Settings</h2>
+              <p>基础配置、UI 偏好、安全审计保留策略。</p>
+            </div>
+            <span class="badge warning">预留</span>
+          </div>
+          <div class="settings-grid">
+            <label>Gateway Name<input value="Gateway4LLM" disabled></label>
+            <label>Default Timeout<input value="60s" disabled></label>
+            <label>Table Page Size<input value="50" disabled></label>
+          </div>
+        </section>
+        {% endif %}
+      </main>
     </div>
-    <form method="post" action="/ui/logout"><button class="ghost">退出</button></form>
-  </header>
-  <main class="layout">
-    <section class="panel span-2">
-      <div class="section-head">
-        <h2>API Key</h2>
-        <form hx-post="/ui/keys" hx-target="#keys" hx-swap="innerHTML" class="inline-form">
-          <input name="name" placeholder="Key 名称" required>
-          <button type="submit">创建</button>
-        </form>
-      </div>
-      <div id="keys" hx-get="/ui/keys" hx-trigger="load" hx-swap="innerHTML">
-        <div class="loading">加载中...</div>
-      </div>
-    </section>
-    <section class="panel">
-      <h2>网关测试</h2>
-      <form class="stack" hx-post="/ui/gateway-test" hx-target="#gateway-result">
-        <label>业务 API Key<input name="api_key" required placeholder="g4l_live_..."></label>
-        <label>接口
-          <select name="interface">
-            <option value="chat">OpenAI Chat</option>
-            <option value="responses">OpenAI Responses</option>
-            <option value="anthropic">Anthropic Messages</option>
-          </select>
-        </label>
-        <label>Prompt<textarea name="prompt" rows="4">Say hello from the gateway.</textarea></label>
-        <button type="submit">发送</button>
-      </form>
-      <div id="gateway-result" class="result empty">暂无结果</div>
-    </section>
-    <section class="panel span-3">
-      <div class="section-head">
-        <h2>业务日志</h2>
-        <form hx-get="/ui/logs" hx-target="#logs" class="inline-form">
-          <select name="provider">
-            <option value="">全部</option>
-            <option value="mock">mock</option>
-            <option value="openai">openai</option>
-            <option value="anthropic">anthropic</option>
-          </select>
-          <button type="submit" class="secondary">筛选</button>
-        </form>
-      </div>
-      <div id="logs" hx-get="/ui/logs" hx-trigger="load, every 10s" hx-swap="innerHTML">
-        <div class="loading">加载中...</div>
-      </div>
-    </section>
-  </main>
+  </div>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
 </body>
 </html>

@@ -1,0 +1,32 @@
+<div class="stat-grid">
+  <article class="stat-card">
+    <span>Providers</span>
+    <strong>{{ provider_count }}</strong>
+    <small>{{ enabled_provider_count }} enabled</small>
+  </article>
+  <article class="stat-card">
+    <span>Gateway Models</span>
+    <strong>{{ model_count }}</strong>
+    <small>public model mappings</small>
+  </article>
+  <article class="stat-card">
+    <span>API Keys</span>
+    <strong>{{ key_count }}</strong>
+    <small>business credentials</small>
+  </article>
+  <article class="stat-card">
+    <span>Requests</span>
+    <strong>{{ request_count }}</strong>
+    <small>total logged</small>
+  </article>
+  <article class="stat-card">
+    <span>Error Rate</span>
+    <strong>{{ "%.1f"|format(error_rate) }}%</strong>
+    <small>logged failures</small>
+  </article>
+  <article class="stat-card">
+    <span>Avg Latency</span>
+    <strong>{{ avg_latency }}ms</strong>
+    <small>gateway duration</small>
+  </article>
+</div>

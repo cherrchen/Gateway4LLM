@@ -1,23 +1,80 @@
 {% if created_key %}
-<div class="alert success">
-  <strong>已创建</strong>
-  <code>{{ created_key }}</code>
+<div class="modal-backdrop" id="api-key-once-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>API Key Created</h3>
+      <span class="badge warning">shown once</span>
+    </div>
+    <p>This key will only be shown once. Copy and store it securely.</p>
+    <code class="secret-once">{{ created_key }}</code>
+    <div class="modal-actions">
+      <button type="button" onclick="navigator.clipboard.writeText('{{ created_key }}')">Copy</button>
+      <button class="ghost" type="button" onclick="document.getElementById('api-key-once-modal').remove()">I have saved it</button>
+    </div>
+  </div>
 </div>
 {% endif %}
+
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
+
 {% if keys %}
 <div class="table-wrap">
   <table>
-    <thead><tr><th>名称</th><th>前缀</th><th>状态</th><th>最近使用</th><th></th></tr></thead>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Key Prefix</th>
+        <th>Status</th>
+        <th>Default Provider</th>
+        <th>Default Model</th>
+        <th>Allowed Models</th>
+        <th>Last Used</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
     <tbody>
     {% for key in keys %}
       <tr>
-        <td>{{ key.name }}</td>
+        <td>
+          <form id="key-{{ key.id }}" hx-post="/ui/keys/{{ key.id }}" hx-target="#keys" hx-swap="innerHTML" class="row-form">
+            <input name="name" value="{{ key.name }}" aria-label="key name" {% if key.is_revoked %}disabled{% endif %}>
+          </form>
+        </td>
         <td><code>{{ key.key_prefix }}</code></td>
-        <td>{% if key.is_revoked %}<span class="badge danger">已撤销</span>{% else %}<span class="badge">可用</span>{% endif %}</td>
+        <td>
+          {% if key.is_revoked %}
+          <span class="badge danger">revoked</span>
+          {% else %}
+          <span class="badge success-badge">active</span>
+          {% endif %}
+        </td>
+        <td>
+          <input form="key-{{ key.id }}" name="default_provider" value="{{ key.default_provider or '' }}" placeholder="provider" {% if key.is_revoked %}disabled{% endif %}>
+        </td>
+        <td>
+          <input form="key-{{ key.id }}" name="default_model" value="{{ key.default_model or '' }}" placeholder="model" {% if key.is_revoked %}disabled{% endif %}>
+        </td>
+        <td>
+          <input form="key-{{ key.id }}" name="allowed_models" value="{% if key.allowed_models %}{{ key.allowed_models|join(', ') }}{% endif %}" placeholder="comma-separated or blank" {% if key.is_revoked %}disabled{% endif %}>
+        </td>
         <td>{{ key.last_used_at or "-" }}</td>
         <td>
           {% if not key.is_revoked %}
-          <button class="small danger" hx-post="/ui/keys/{{ key.id }}/revoke" hx-target="#keys">撤销</button>
+          <button
+            form="key-{{ key.id }}"
+            class="small secondary"
+            type="submit"
+          >Save</button>
+          <button
+            class="small danger"
+            hx-post="/ui/keys/{{ key.id }}/revoke"
+            hx-target="#keys"
+            hx-confirm="撤销后业务系统将无法继续使用这个 API Key。确定撤销吗？"
+          >Revoke</button>
+          {% else %}
+          <button class="small ghost" disabled>Revoked</button>
           {% endif %}
         </td>
       </tr>
@@ -25,6 +82,15 @@
     </tbody>
   </table>
 </div>
+<div class="pagination-row">
+  <span>Showing {{ keys|length }} API keys</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
 {% else %}
-<div class="empty">还没有 API Key</div>
+<div class="empty-state strong">
+  <h3>No API keys created yet.</h3>
+  <p>Create a business credential, then copy the full value from the one-time modal.</p>
+  <button class="secondary" disabled>Create API Key</button>
+</div>
 {% endif %}

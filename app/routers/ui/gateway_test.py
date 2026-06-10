@@ -16,6 +16,7 @@ async def gateway_test(
     api_key: str = Form(),
     interface: str = Form(),
     prompt: str = Form(),
+    provider: str | None = Form(default=None),
 ) -> Response:
     path = {
         "chat": "/v1/chat/completions",
@@ -35,6 +36,9 @@ async def gateway_test(
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 128,
         }
+    headers = {"Authorization": f"Bearer {api_key}"}
+    if provider:
+        headers["X-Gateway-Provider"] = provider
     async with AsyncClient(
         transport=ASGITransport(app=request.app),
         base_url="http://test",
@@ -42,7 +46,7 @@ async def gateway_test(
         response = await client.post(
             path,
             json=payload,
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers=headers,
         )
     return templates.TemplateResponse(
         request,

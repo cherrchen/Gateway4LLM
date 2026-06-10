@@ -1,0 +1,138 @@
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
+
+<div class="toolbar">
+  <form hx-get="/ui/providers" hx-target="#providers-panel" hx-swap="innerHTML" class="filter-bar">
+    <input type="search" name="search" value="{{ search or '' }}" placeholder="Search providers or base URL">
+    <select name="provider_type">
+      <option value="">All Types</option>
+      {% for item in ["mock", "openai", "anthropic"] %}
+      <option value="{{ item }}" {% if provider_type == item %}selected{% endif %}>{{ item }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      <option value="">All Status</option>
+      <option value="enabled" {% if status == "enabled" %}selected{% endif %}>Enabled</option>
+      <option value="disabled" {% if status == "disabled" %}selected{% endif %}>Disabled</option>
+    </select>
+    <button class="secondary" type="submit">筛选</button>
+  </form>
+</div>
+
+<details class="create-drawer">
+  <summary>新增 Provider</summary>
+  <form hx-post="/ui/providers" hx-target="#providers-panel" hx-swap="innerHTML" class="manage-form">
+    <label>Name<input name="name" placeholder="openai-main" required></label>
+    <label>Type
+      <select name="provider_type">
+        <option value="mock">mock</option>
+        <option value="openai">openai</option>
+        <option value="anthropic">anthropic</option>
+      </select>
+    </label>
+    <label>Display Name<input name="display_name" placeholder="OpenAI Main"></label>
+    <label>Base URL<input name="base_url" placeholder="https://api.openai.com/v1"></label>
+    <label>Secret Ref<input name="api_key_env_var" placeholder="env:OPENAI_API_KEY"></label>
+    <label>Default Model<input name="default_model_name" placeholder="gpt-4.1-mini"></label>
+    <label>Target Interface
+      <select name="default_target_interface">
+        <option value="same">same</option>
+        <option value="chat">chat</option>
+        <option value="responses">responses</option>
+        <option value="anthropic">anthropic</option>
+      </select>
+    </label>
+    <label>Timeout<input name="timeout_seconds" type="number" step="0.5" min="1" value="60"></label>
+    <label class="check"><input type="checkbox" name="supports_streaming" value="true" checked> streaming</label>
+    <label class="check"><input type="checkbox" name="is_enabled" value="true" checked> enabled</label>
+    <label class="check"><input type="checkbox" name="is_default" value="true"> system default</label>
+    <button type="submit">Create Provider</button>
+  </form>
+</details>
+
+{% if providers %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Provider</th>
+        <th>Type</th>
+        <th>Base URL</th>
+        <th>Status</th>
+        <th>Secret</th>
+        <th>Default Route</th>
+        <th>Connection</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for provider in providers %}
+      <tr>
+        <td>
+          <strong>{{ provider.name }}</strong>
+          <span class="subtext">{{ provider.display_name }}</span>
+        </td>
+        <td><code>{{ provider.provider_type }}</code></td>
+        <td class="truncate-cell">{{ provider.base_url or "-" }}</td>
+        <td>
+          {% if provider.is_enabled %}
+          <span class="badge success-badge">enabled</span>
+          {% else %}
+          <span class="badge neutral-badge">disabled / 禁用</span>
+          {% endif %}
+          {% if provider.is_default %}<span class="badge">default</span>{% endif %}
+        </td>
+        <td>
+          {% if provider.api_key_configured %}
+          <span class="badge success-badge">configured</span>
+          {% else %}
+          <span class="badge warning">missing</span>
+          {% endif %}
+        </td>
+        <td>
+          <code>{{ provider.default_target_interface }}</code>
+          <span class="subtext">{{ provider.default_model_name or "no default model" }}</span>
+        </td>
+        <td>
+          <button class="small secondary" hx-post="/ui/providers/{{ provider.id }}/test" hx-target="#provider-test-{{ provider.id }}" hx-swap="outerHTML">Test</button>
+          <div id="provider-test-{{ provider.id }}" class="inline-status">not checked</div>
+        </td>
+        <td>
+          <details class="row-actions">
+            <summary>Edit</summary>
+            <form id="provider-{{ provider.id }}" hx-post="/ui/providers/{{ provider.id }}" hx-target="#providers-panel" hx-swap="innerHTML" class="row-form">
+              <input name="display_name" value="{{ provider.display_name }}" aria-label="display name">
+              <input name="base_url" value="{{ provider.base_url or '' }}" placeholder="Base URL">
+              <input name="api_key_env_var" value="{{ provider.api_key_env_var or '' }}" placeholder="env var or env:NAME">
+              <input name="default_model_name" value="{{ provider.default_model_name or '' }}" placeholder="Default model">
+              <select name="default_target_interface">
+                {% for item in ["same", "chat", "responses", "anthropic"] %}
+                <option value="{{ item }}" {% if provider.default_target_interface == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+              </select>
+              <input name="timeout_seconds" type="number" step="0.5" min="1" value="{{ provider.timeout_seconds }}">
+              <label class="check"><input type="checkbox" name="supports_streaming" value="true" {% if provider.supports_streaming %}checked{% endif %}> streaming</label>
+              <label class="check"><input type="checkbox" name="is_enabled" value="true" {% if provider.is_enabled %}checked{% endif %}> enabled</label>
+              <label class="check"><input type="checkbox" name="is_default" value="true" {% if provider.is_default %}checked{% endif %}> default</label>
+              <button class="small" type="submit">Save</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination-row">
+  <span>Showing {{ providers|length }} providers</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
+{% else %}
+<div class="empty-state strong">
+  <h3>No providers configured yet.</h3>
+  <p>Start by adding your first model provider.</p>
+  <button class="secondary" disabled>Add Provider</button>
+</div>
+{% endif %}
