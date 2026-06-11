@@ -24,7 +24,15 @@ def test_alembic_upgrade_head_creates_provider_registry_schema(tmp_path: Path) -
         "gatewaylog",
         "providerconfig",
         "modelconfig",
+        "providermodel",
+        "routingrule",
         "alembic_version",
     }.issubset(set(inspector.get_table_names()))
     key_columns = {column["name"] for column in inspector.get_columns("businessapikey")}
     assert {"default_provider", "default_model", "allowed_models"}.issubset(key_columns)
+    provider_model_columns = {column["name"] for column in inspector.get_columns("providermodel")}
+    assert {"upstream_model_name", "capabilities", "health_status"}.issubset(
+        provider_model_columns
+    )
+    routing_rule_columns = {column["name"] for column in inspector.get_columns("routingrule")}
+    assert {"public_model_name", "strategy", "provider_model_id"}.issubset(routing_rule_columns)

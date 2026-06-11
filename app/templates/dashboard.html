@@ -137,21 +137,15 @@
         </section>
 
         {% elif active_page == "provider-models" %}
-        <section class="section-block muted-section">
+        <section class="section-block">
           <div class="section-head">
             <div>
               <h2>Provider Models</h2>
-              <p>Internal model from provider. 当前后端尚未拆出独立 ProviderModel 表，本页先展示接入规划。</p>
+              <p>Internal model catalog from providers, with capability, price, health, and GatewayModel mapping status.</p>
             </div>
-            <span class="badge warning">需要后端补充</span>
           </div>
-          <div class="empty-state strong">
-            <h3>No provider model catalog yet.</h3>
-            <p>同步模型、模型健康、价格、能力标签和映射状态需要后端补充独立接口。</p>
-            <div class="empty-actions">
-              <button class="secondary" disabled>Sync Models</button>
-              <button class="ghost" disabled>Add ProviderModel Manually</button>
-            </div>
+          <div id="provider-models" hx-get="/ui/provider-models" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading">加载 ProviderModel 列表...</div>
           </div>
         </section>
 
@@ -169,31 +163,15 @@
         </section>
 
         {% elif active_page == "routing" %}
-        <section class="section-block muted-section">
+        <section class="section-block">
           <div class="section-head">
             <div>
               <h2>Routing Rules</h2>
-              <p>Fixed、fallback、weighted、latency、cost optimized 和 custom 策略配置入口。</p>
+              <p>Fixed、fallback、weighted 和 custom 策略配置入口。</p>
             </div>
-            <span class="badge warning">需要后端补充</span>
           </div>
-          <div class="strategy-preview">
-            <div class="strategy-card active">
-              <strong>fixed</strong>
-              <span>唯一 ProviderModel</span>
-            </div>
-            <div class="strategy-card">
-              <strong>fallback</strong>
-              <span>Primary + 有序 fallback</span>
-            </div>
-            <div class="strategy-card">
-              <strong>weighted</strong>
-              <span>多模型权重与总和校验</span>
-            </div>
-            <div class="strategy-card">
-              <strong>custom</strong>
-              <span>JSON 规则与字段级校验</span>
-            </div>
+          <div id="routing-rules" hx-get="/ui/routing-rules" hx-trigger="load" hx-swap="innerHTML">
+            <div class="loading">加载 RoutingRule 列表...</div>
           </div>
         </section>
 

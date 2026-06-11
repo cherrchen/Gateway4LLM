@@ -15,6 +15,7 @@ from app.services.provider_configs import (
     prepare_upstream_body,
     resolve_model_config,
     resolve_provider_config,
+    resolve_routing_rule_config,
     resolve_target_interface,
     validate_gateway_resolution,
 )
@@ -67,9 +68,13 @@ async def handle_gateway_request(
     target = x_gateway_target_interface or ""
 
     try:
-        provider_config = resolve_provider_config(session, body, api_key, x_gateway_provider)
+        routed_config = resolve_routing_rule_config(session, body, api_key, x_gateway_provider)
+        if routed_config:
+            provider_config, model_config = routed_config
+        else:
+            provider_config = resolve_provider_config(session, body, api_key, x_gateway_provider)
+            model_config = resolve_model_config(session, body, api_key, provider_config)
         provider_name = provider_config.name
-        model_config = resolve_model_config(session, body, api_key, provider_config)
         target = resolve_target_interface(
             body,
             source_interface,

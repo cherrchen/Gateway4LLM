@@ -231,3 +231,107 @@ def test_routing_settings_api_updates_configured_defaults(client: TestClient) ->
     )
     assert updated.status_code == 200
     assert updated.json()["default_provider"] == "mock"
+
+
+def test_provider_model_catalog_api_syncs_and_tracks_mappings(client: TestClient) -> None:
+    headers, _ = _auth(client)
+    providers = client.get("/api/providers", headers=headers).json()
+    provider = next(item for item in providers if item["name"] == "mock")
+
+    seeded = client.get("/api/provider-models", headers=headers)
+    assert seeded.status_code == 200
+    mock_model = next(item for item in seeded.json() if item["upstream_model_name"] == "mock-model")
+    assert "mock-model" in mock_model["mapped_gateway_models"]
+
+    created_mapping = client.post(
+        "/api/models",
+        json={
+            "provider_config_id": provider["id"],
+            "public_model_name": "sync-public",
+            "upstream_model_name": "sync-upstream",
+            "supported_interfaces": ["chat", "responses"],
+        },
+        headers=headers,
+    )
+    assert created_mapping.status_code == 201
+
+    synced = client.post(
+        f"/api/providers/{provider['id']}/provider-models/sync",
+        headers=headers,
+    )
+    assert synced.status_code == 200
+    synced_model = next(
+        item for item in synced.json() if item["upstream_model_name"] == "sync-upstream"
+    )
+    assert synced_model["mapped_gateway_models"] == ["sync-public"]
+
+    patched = client.patch(
+        f"/api/provider-models/{synced_model['id']}",
+        json={"capabilities": ["json", "tools"], "health_status": "degraded"},
+        headers=headers,
+    )
+    assert patched.status_code == 200
+    assert patched.json()["capabilities"] == ["json", "tools"]
+    assert patched.json()["health_status"] == "degraded"
+
+    tested = client.post(f"/api/provider-models/{synced_model['id']}/test", headers=headers)
+    assert tested.status_code == 200
+    assert tested.json()["ok"] is True
+
+    delete_attempt = client.delete(f"/api/provider-models/{synced_model['id']}", headers=headers)
+    assert delete_attempt.status_code == 405
+
+
+def test_fixed_routing_rule_maps_gateway_model_to_provider_model(client: TestClient) -> None:
+    headers, api_key = _auth(client)
+    providers = client.get("/api/providers", headers=headers).json()
+    provider = next(item for item in providers if item["name"] == "mock")
+
+    provider_model = client.post(
+        "/api/provider-models",
+        json={
+            "provider_config_id": provider["id"],
+            "upstream_model_name": "rule-upstream",
+            "display_name": "Rule upstream",
+            "supported_interfaces": ["chat", "responses"],
+            "health_status": "healthy",
+            "is_enabled": True,
+        },
+        headers=headers,
+    )
+    assert provider_model.status_code == 201
+
+    rule = client.post(
+        "/api/routing-rules",
+        json={
+            "name": "fixed mock route",
+            "public_model_name": "rule-public",
+            "strategy": "fixed",
+            "provider_model_id": provider_model.json()["id"],
+            "default_parameters": {"temperature": 0.1},
+            "is_enabled": True,
+        },
+        headers=headers,
+    )
+    assert rule.status_code == 201
+    assert rule.json()["strategy"] == "fixed"
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"model": "rule-public", "messages": [{"role": "user", "content": "hello"}]},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["model"] == "rule-upstream"
+
+    disabled = client.post(f"/api/routing-rules/{rule.json()['id']}/disable", headers=headers)
+    assert disabled.status_code == 200
+    assert disabled.json()["is_enabled"] is False
+
+    missing = client.post(
+        "/v1/chat/completions",
+        json={"model": "rule-public", "messages": [{"role": "user", "content": "hello"}]},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    assert missing.status_code == 400
+    assert "not configured" in missing.json()["detail"]

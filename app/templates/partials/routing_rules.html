@@ -1,0 +1,148 @@
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
+
+<div class="toolbar">
+  <form hx-get="/ui/routing-rules" hx-target="#routing-rules" hx-swap="innerHTML" class="filter-bar">
+    <input type="search" name="search" value="{{ search or '' }}" placeholder="Search rule or GatewayModel">
+    <select name="strategy">
+      <option value="">All Strategies</option>
+      {% for item in ["fixed", "fallback", "weighted", "custom"] %}
+      <option value="{{ item }}" {% if strategy == item %}selected{% endif %}>{{ item }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      <option value="">All Status</option>
+      <option value="enabled" {% if status == "enabled" %}selected{% endif %}>Enabled</option>
+      <option value="disabled" {% if status == "disabled" %}selected{% endif %}>Disabled</option>
+    </select>
+    <button class="secondary" type="submit">筛选</button>
+  </form>
+</div>
+
+<details class="create-drawer">
+  <summary>新增 Routing Rule</summary>
+  <form hx-post="/ui/routing-rules" hx-target="#routing-rules" hx-swap="innerHTML" class="manage-form">
+    <label>Name<input name="name" placeholder="mock fixed route" required></label>
+    <label>GatewayModel<input name="public_model_name" placeholder="public model name" required></label>
+    <label>Strategy
+      <select name="strategy">
+        <option value="fixed">fixed</option>
+        <option value="fallback">fallback</option>
+        <option value="weighted">weighted</option>
+        <option value="custom">custom</option>
+      </select>
+    </label>
+    <label>Primary ProviderModel
+      <select name="provider_model_id">
+        <option value="">None</option>
+        {% for model in provider_models %}
+        <option value="{{ model.id }}">{{ provider_model_labels.get(model.id, model.upstream_model_name) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Fallback IDs<input name="fallback_provider_model_ids" placeholder="2, 3"></label>
+    <label>Weights JSON<input name="weight_config" value="{}" placeholder='{"1": 80, "2": 20}'></label>
+    <label>Custom JSON<input name="custom_config" value="{}"></label>
+    <label>Default Parameters<input name="default_parameters" value="{}"></label>
+    <label>Priority<input name="priority" type="number" value="100"></label>
+    <label class="check"><input type="checkbox" name="is_enabled" value="true" checked> enabled</label>
+    <label>Notes<input name="notes" placeholder="routing note"></label>
+    <button type="submit">Create Routing Rule</button>
+  </form>
+</details>
+
+{% if rules %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>GatewayModel</th>
+        <th>Strategy</th>
+        <th>ProviderModel</th>
+        <th>Options</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for rule in rules %}
+      <tr>
+        <td>
+          <strong>{{ rule.name }}</strong>
+          <span class="subtext">priority {{ rule.priority }}</span>
+          {% if rule.notes %}<span class="subtext">{{ rule.notes }}</span>{% endif %}
+        </td>
+        <td><code>{{ rule.public_model_name }}</code></td>
+        <td><span class="badge">{{ rule.strategy }}</span></td>
+        <td>
+          {% if rule.provider_model_id %}
+          <code>{{ provider_model_labels.get(rule.provider_model_id, rule.provider_model_id) }}</code>
+          {% else %}
+          <span class="subtext">No primary provider model</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if rule.fallback_provider_model_ids %}
+          <span class="subtext">fallback: {{ rule.fallback_provider_model_ids|join(', ') }}</span>
+          {% endif %}
+          {% if rule.weight_config %}
+          <span class="subtext">weights: {{ rule.weight_config }}</span>
+          {% endif %}
+          {% if rule.default_parameters %}
+          <span class="subtext">defaults: {{ rule.default_parameters }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if rule.is_enabled %}
+          <span class="badge success-badge">enabled</span>
+          {% else %}
+          <span class="badge neutral-badge">disabled / 禁用</span>
+          {% endif %}
+        </td>
+        <td>
+          <details class="row-actions">
+            <summary>Edit</summary>
+            <form hx-post="/ui/routing-rules/{{ rule.id }}" hx-target="#routing-rules" hx-swap="innerHTML" class="row-form">
+              <input name="name" value="{{ rule.name }}" aria-label="rule name">
+              <input name="public_model_name" value="{{ rule.public_model_name }}" aria-label="public model name">
+              <select name="strategy">
+                {% for item in ["fixed", "fallback", "weighted", "custom"] %}
+                <option value="{{ item }}" {% if rule.strategy == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+              </select>
+              <select name="provider_model_id">
+                <option value="">None</option>
+                {% for model in provider_models %}
+                <option value="{{ model.id }}" {% if rule.provider_model_id == model.id %}selected{% endif %}>{{ provider_model_labels.get(model.id, model.upstream_model_name) }}</option>
+                {% endfor %}
+              </select>
+              <input name="fallback_provider_model_ids" value="{{ rule.fallback_provider_model_ids|join(', ') }}" placeholder="fallback ids">
+              <input name="weight_config" value='{{ rule.weight_config | tojson }}' placeholder="weights json">
+              <input name="custom_config" value='{{ rule.custom_config | tojson }}'>
+              <input name="default_parameters" value='{{ rule.default_parameters | tojson }}'>
+              <input name="priority" type="number" value="{{ rule.priority }}">
+              <label class="check"><input type="checkbox" name="is_enabled" value="true" {% if rule.is_enabled %}checked{% endif %}> enabled</label>
+              <input name="notes" value="{{ rule.notes or '' }}" placeholder="notes">
+              <button class="small" type="submit">Save</button>
+            </form>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination-row">
+  <span>Showing {{ rules|length }} routing rules</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
+{% else %}
+<div class="empty-state strong">
+  <h3>No routing rules configured yet.</h3>
+  <p>Create fixed, fallback, weighted, or custom rules for GatewayModel routing.</p>
+  <button class="secondary" disabled>Create Routing Rule</button>
+</div>
+{% endif %}

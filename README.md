@@ -60,7 +60,7 @@ uv run alembic revision --autogenerate -m "describe schema change"
 uv run alembic upgrade head
 ```
 
-当前初始 migration 会创建 `User`、`BusinessApiKey`、`GatewayLog`、`ProviderConfig`、`ModelConfig`，并包含 Business API Key 的 `default_provider`、`default_model`、`allowed_models` policy 字段。
+当前 migration 会创建 `User`、`BusinessApiKey`、`GatewayLog`、`ProviderConfig`、`ModelConfig`、`ProviderModel`、`RoutingRule`，并包含 Business API Key 的 `default_provider`、`default_model`、`allowed_models` policy 字段。
 
 ## Provider Registry 架构
 
@@ -119,10 +119,12 @@ provider_registry.register(AcmeProvider())
 
 ## Provider 和模型配置
 
-管理面板新增两个区域：
+管理面板包含四个 provider/routing 区域：
 
 - Provider 管理：查看、创建、编辑、启用/禁用 provider，设置显示名称、类型、base URL、密钥环境变量引用、默认目标接口、默认模型、streaming、超时、系统默认，并测试连通性。
-- 模型管理：查看、创建、编辑、启用/禁用模型，设置 provider、对外模型名、上游真实模型名、支持接口、默认目标接口、默认参数、streaming、备注和默认模型。
+- ProviderModel 目录：查看、创建、编辑、启用/禁用上游模型目录，维护能力标签、价格、健康状态、默认目标接口和 GatewayModel 映射状态。
+- GatewayModel 管理：查看、创建、编辑、启用/禁用模型映射，设置 provider、对外模型名、上游真实模型名、支持接口、默认目标接口、默认参数、streaming、备注和默认模型。
+- Routing Rules：查看、创建、编辑、启用/禁用 GatewayModel 到 ProviderModel 的 fixed、fallback、weighted、custom 路由规则。fixed/fallback/weighted 会参与网关运行时解析。
 
 REST 管理接口：
 
@@ -144,10 +146,27 @@ REST 管理接口：
 - `POST /api/models/{model_id}/disable`
 - `POST /api/models/{model_id}/set-default`
 - `DELETE /api/models/{model_id}`
+- `GET /api/provider-models`
+- `GET /api/provider-models/{provider_model_id}`
+- `POST /api/provider-models`
+- `PATCH /api/provider-models/{provider_model_id}`
+- `POST /api/provider-models/{provider_model_id}/enable`
+- `POST /api/provider-models/{provider_model_id}/disable`
+- `POST /api/provider-models/{provider_model_id}/set-default`
+- `POST /api/provider-models/{provider_model_id}/test`
+- `POST /api/providers/{provider_id}/provider-models/sync`
+- `DELETE /api/provider-models/{provider_model_id}`
+- `GET /api/routing-rules`
+- `GET /api/routing-rules/{rule_id}`
+- `POST /api/routing-rules`
+- `PATCH /api/routing-rules/{rule_id}`
+- `POST /api/routing-rules/{rule_id}/enable`
+- `POST /api/routing-rules/{rule_id}/disable`
+- `DELETE /api/routing-rules/{rule_id}`
 - `GET /api/settings/routing`
 - `PATCH /api/settings/routing`
 
-`DELETE /api/providers/{provider_id}` 和 `DELETE /api/models/{model_id}` 会返回明确错误：当前设计不支持硬删除，只支持禁用，以保留模型、策略和历史日志关联。
+`DELETE /api/providers/{provider_id}`、`DELETE /api/models/{model_id}`、`DELETE /api/provider-models/{provider_model_id}` 和 `DELETE /api/routing-rules/{rule_id}` 会返回明确错误：当前设计不支持硬删除，只支持禁用，以保留模型、策略和历史日志关联。
 
 新增模型配置示例：
 
@@ -227,6 +246,21 @@ Authorization: Bearer <jwt>
 - `POST /api/models/{model_id}/enable`
 - `POST /api/models/{model_id}/disable`
 - `POST /api/models/{model_id}/set-default`
+- `GET /api/provider-models`
+- `GET /api/provider-models/{provider_model_id}`
+- `POST /api/provider-models`
+- `PATCH /api/provider-models/{provider_model_id}`
+- `POST /api/provider-models/{provider_model_id}/enable`
+- `POST /api/provider-models/{provider_model_id}/disable`
+- `POST /api/provider-models/{provider_model_id}/set-default`
+- `POST /api/provider-models/{provider_model_id}/test`
+- `POST /api/providers/{provider_id}/provider-models/sync`
+- `GET /api/routing-rules`
+- `GET /api/routing-rules/{rule_id}`
+- `POST /api/routing-rules`
+- `PATCH /api/routing-rules/{rule_id}`
+- `POST /api/routing-rules/{rule_id}/enable`
+- `POST /api/routing-rules/{rule_id}/disable`
 - `GET /api/settings/routing`
 - `PATCH /api/settings/routing`
 
@@ -327,7 +361,7 @@ app/routers/
     auth.py                # /api/auth
     keys.py                # /api/keys
     logs.py                # /api/logs
-    providers.py           # /api/providers, /api/models
+    providers.py           # /api/providers, /api/models, /api/provider-models, /api/routing-rules
   gateway/
     __init__.py            # 业务网关聚合
     common.py              # 网关共享处理、解析配置、调用 provider、日志
@@ -340,7 +374,7 @@ app/routers/
     auth.py                # /ui/login, /ui/register, /ui/logout
     keys.py                # /ui/keys
     logs.py                # /ui/logs
-    providers.py           # /ui/providers, /ui/models
+    providers.py           # /ui/providers, /ui/models, /ui/provider-models, /ui/routing-rules
     gateway_test.py        # /ui/gateway-test
     templates.py           # Jinja2Templates 实例
 app/providers/

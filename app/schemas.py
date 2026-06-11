@@ -171,6 +171,102 @@ class ModelConfigRead(BaseModel):
     updated_at: datetime
 
 
+class ProviderModelCreate(BaseModel):
+    provider_config_id: int
+    upstream_model_name: str = Field(min_length=1, max_length=160)
+    display_name: str | None = None
+    supported_interfaces: list[str] = Field(default_factory=lambda: ["chat"])
+    supports_streaming: bool = True
+    default_target_interface: str = "same"
+    input_price_per_million_tokens: float | None = Field(default=None, ge=0)
+    output_price_per_million_tokens: float | None = Field(default=None, ge=0)
+    capabilities: list[str] = Field(default_factory=list)
+    health_status: str = "unknown"
+    is_enabled: bool = True
+    is_default: bool = False
+    notes: str | None = None
+
+
+class ProviderModelUpdate(BaseModel):
+    upstream_model_name: str | None = Field(default=None, min_length=1, max_length=160)
+    display_name: str | None = None
+    supported_interfaces: list[str] | None = None
+    supports_streaming: bool | None = None
+    default_target_interface: str | None = None
+    input_price_per_million_tokens: float | None = Field(default=None, ge=0)
+    output_price_per_million_tokens: float | None = Field(default=None, ge=0)
+    capabilities: list[str] | None = None
+    health_status: str | None = None
+    is_enabled: bool | None = None
+    is_default: bool | None = None
+    notes: str | None = None
+
+
+class ProviderModelRead(BaseModel):
+    id: int
+    provider_config_id: int
+    upstream_model_name: str
+    display_name: str | None
+    supported_interfaces: list[str]
+    supports_streaming: bool
+    default_target_interface: str
+    input_price_per_million_tokens: float | None
+    output_price_per_million_tokens: float | None
+    capabilities: list[str]
+    health_status: str
+    is_enabled: bool
+    is_default: bool
+    notes: str | None
+    mapped_gateway_models: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class RoutingRuleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    public_model_name: str = Field(min_length=1, max_length=160)
+    strategy: str = "fixed"
+    provider_model_id: int | None = None
+    fallback_provider_model_ids: list[int] = Field(default_factory=list)
+    weight_config: dict[str, float] = Field(default_factory=dict)
+    custom_config: dict[str, Any] = Field(default_factory=dict)
+    default_parameters: dict[str, Any] = Field(default_factory=dict)
+    priority: int = 100
+    is_enabled: bool = True
+    notes: str | None = None
+
+
+class RoutingRuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    public_model_name: str | None = Field(default=None, min_length=1, max_length=160)
+    strategy: str | None = None
+    provider_model_id: int | None = None
+    fallback_provider_model_ids: list[int] | None = None
+    weight_config: dict[str, float] | None = None
+    custom_config: dict[str, Any] | None = None
+    default_parameters: dict[str, Any] | None = None
+    priority: int | None = None
+    is_enabled: bool | None = None
+    notes: str | None = None
+
+
+class RoutingRuleRead(BaseModel):
+    id: int
+    name: str
+    public_model_name: str
+    strategy: str
+    provider_model_id: int | None
+    fallback_provider_model_ids: list[int]
+    weight_config: dict[str, float]
+    custom_config: dict[str, Any]
+    default_parameters: dict[str, Any]
+    priority: int
+    is_enabled: bool
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class RoutingSettingsRead(BaseModel):
     default_provider: str | None
     default_model: str | None

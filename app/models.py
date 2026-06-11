@@ -65,6 +65,42 @@ class ModelConfig(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=now_utc)
 
 
+class ProviderModel(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    provider_config_id: int = Field(foreign_key="providerconfig.id", index=True)
+    upstream_model_name: str = Field(index=True)
+    display_name: str | None = None
+    supported_interfaces: str = '["chat","responses","anthropic"]'
+    supports_streaming: bool = True
+    default_target_interface: str = "same"
+    input_price_per_million_tokens: float | None = None
+    output_price_per_million_tokens: float | None = None
+    capabilities: str = "[]"
+    health_status: str = "unknown"
+    is_enabled: bool = True
+    is_default: bool = False
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+class RoutingRule(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    public_model_name: str = Field(index=True)
+    strategy: str = Field(default="fixed", index=True)
+    provider_model_id: int | None = Field(default=None, foreign_key="providermodel.id")
+    fallback_provider_model_ids: str = "[]"
+    weight_config: str = "{}"
+    custom_config: str = "{}"
+    default_parameters: str = "{}"
+    priority: int = Field(default=100, index=True)
+    is_enabled: bool = True
+    notes: str | None = None
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
 class GatewayLog(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int | None = Field(default=None, index=True)

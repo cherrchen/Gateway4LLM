@@ -1,0 +1,193 @@
+{% if error %}
+<div class="alert error">{{ error }}</div>
+{% endif %}
+
+<div class="toolbar">
+  <form hx-get="/ui/provider-models" hx-target="#provider-models" hx-swap="innerHTML" class="filter-bar">
+    <input type="search" name="search" value="{{ search or '' }}" placeholder="Search upstream model or capability">
+    <select name="provider_id">
+      <option value="">All Providers</option>
+      {% for provider in providers %}
+      <option value="{{ provider.id }}" {% if provider_id == provider.id %}selected{% endif %}>{{ provider.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="health_status">
+      <option value="">All Health</option>
+      {% for item in ["unknown", "healthy", "degraded", "unavailable", "deprecated"] %}
+      <option value="{{ item }}" {% if health_status == item %}selected{% endif %}>{{ item }}</option>
+      {% endfor %}
+    </select>
+    <select name="status">
+      <option value="">All Status</option>
+      <option value="enabled" {% if status == "enabled" %}selected{% endif %}>Enabled</option>
+      <option value="disabled" {% if status == "disabled" %}selected{% endif %}>Disabled</option>
+    </select>
+    <button class="secondary" type="submit">筛选</button>
+  </form>
+</div>
+
+<details class="create-drawer">
+  <summary>新增 ProviderModel</summary>
+  <form hx-post="/ui/provider-models" hx-target="#provider-models" hx-swap="innerHTML" class="manage-form">
+    <label>Provider
+      <select name="provider_config_id" required>
+        {% for provider in providers %}
+        <option value="{{ provider.id }}">{{ provider.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Upstream Model<input name="upstream_model_name" placeholder="gpt-4.1-mini" required></label>
+    <label>Display Name<input name="display_name" placeholder="Optional label"></label>
+    <label>Default Target
+      <select name="default_target_interface">
+        <option value="same">same</option>
+        <option value="chat">chat</option>
+        <option value="responses">responses</option>
+        <option value="anthropic">anthropic</option>
+      </select>
+    </label>
+    <label>Input / 1M<input name="input_price_per_million_tokens" type="number" min="0" step="0.000001"></label>
+    <label>Output / 1M<input name="output_price_per_million_tokens" type="number" min="0" step="0.000001"></label>
+    <label>Capabilities<input name="capabilities" placeholder="vision, tools, json"></label>
+    <label>Health
+      <select name="health_status">
+        {% for item in ["unknown", "healthy", "degraded", "unavailable", "deprecated"] %}
+        <option value="{{ item }}">{{ item }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="chat" checked> chat</label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="responses" checked> responses</label>
+    <label class="check"><input type="checkbox" name="supported_interfaces" value="anthropic" checked> anthropic</label>
+    <label class="check"><input type="checkbox" name="supports_streaming" value="true" checked> streaming</label>
+    <label class="check"><input type="checkbox" name="is_enabled" value="true" checked> enabled</label>
+    <label class="check"><input type="checkbox" name="is_default" value="true"> default</label>
+    <label>Notes<input name="notes" placeholder="catalog note"></label>
+    <button type="submit">Create ProviderModel</button>
+  </form>
+</details>
+
+{% if providers %}
+<div class="toolbar">
+  <form hx-post="/ui/providers/{{ providers[0].id }}/provider-models/sync" hx-target="#provider-models" hx-swap="innerHTML" class="inline-form">
+    <select name="provider_id" aria-label="sync provider" onchange="this.form.setAttribute('hx-post', '/ui/providers/' + this.value + '/provider-models/sync')">
+      {% for provider in providers %}
+      <option value="{{ provider.id }}">{{ provider.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="ghost" type="submit">Sync From Gateway Models</button>
+  </form>
+</div>
+{% endif %}
+
+{% if provider_models %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>ProviderModel</th>
+        <th>Provider</th>
+        <th>Interfaces</th>
+        <th>Price / Health</th>
+        <th>Mappings</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for model in provider_models %}
+      <tr>
+        <td>
+          <strong>{{ model.display_name or model.upstream_model_name }}</strong>
+          <code>{{ model.upstream_model_name }}</code>
+          {% if model.capabilities %}
+          <div class="badge-row">
+            {% for item in model.capabilities %}
+            <span class="badge neutral-badge">{{ item }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </td>
+        <td><code>{{ provider_names.get(model.provider_config_id, model.provider_config_id) }}</code></td>
+        <td>
+          <div class="badge-row">
+            {% for item in model.supported_interfaces %}
+            <span class="badge neutral-badge">{{ item }}</span>
+            {% endfor %}
+          </div>
+          <span class="subtext">target: {{ model.default_target_interface }}</span>
+        </td>
+        <td>
+          <span class="badge {% if model.health_status == 'healthy' %}success-badge{% elif model.health_status in ['unavailable', 'deprecated'] %}danger{% else %}neutral-badge{% endif %}">{{ model.health_status }}</span>
+          <span class="subtext">in {{ model.input_price_per_million_tokens if model.input_price_per_million_tokens is not none else "-" }} / out {{ model.output_price_per_million_tokens if model.output_price_per_million_tokens is not none else "-" }}</span>
+        </td>
+        <td>
+          {% if model.mapped_gateway_models %}
+          <div class="badge-row">
+            {% for item in model.mapped_gateway_models %}
+            <span class="badge">{{ item }}</span>
+            {% endfor %}
+          </div>
+          {% else %}
+          <span class="subtext">No GatewayModel mapping</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if model.is_enabled %}
+          <span class="badge success-badge">enabled</span>
+          {% else %}
+          <span class="badge neutral-badge">disabled / 禁用</span>
+          {% endif %}
+          {% if model.is_default %}<span class="badge">default</span>{% endif %}
+        </td>
+        <td>
+          <details class="row-actions">
+            <summary>Edit</summary>
+            <form hx-post="/ui/provider-models/{{ model.id }}" hx-target="#provider-models" hx-swap="innerHTML" class="row-form">
+              <input name="upstream_model_name" value="{{ model.upstream_model_name }}" aria-label="upstream model name">
+              <input name="display_name" value="{{ model.display_name or '' }}" placeholder="display name">
+              <select name="default_target_interface">
+                {% for item in ["same", "chat", "responses", "anthropic"] %}
+                <option value="{{ item }}" {% if model.default_target_interface == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+              </select>
+              <input name="input_price_per_million_tokens" type="number" min="0" step="0.000001" value="{{ model.input_price_per_million_tokens if model.input_price_per_million_tokens is not none else '' }}">
+              <input name="output_price_per_million_tokens" type="number" min="0" step="0.000001" value="{{ model.output_price_per_million_tokens if model.output_price_per_million_tokens is not none else '' }}">
+              <input name="capabilities" value="{{ model.capabilities|join(', ') }}" placeholder="capabilities">
+              <select name="health_status">
+                {% for item in ["unknown", "healthy", "degraded", "unavailable", "deprecated"] %}
+                <option value="{{ item }}" {% if model.health_status == item %}selected{% endif %}>{{ item }}</option>
+                {% endfor %}
+              </select>
+              {% for item in ["chat", "responses", "anthropic"] %}
+              <label class="check"><input type="checkbox" name="supported_interfaces" value="{{ item }}" {% if item in model.supported_interfaces %}checked{% endif %}> {{ item }}</label>
+              {% endfor %}
+              <label class="check"><input type="checkbox" name="supports_streaming" value="true" {% if model.supports_streaming %}checked{% endif %}> streaming</label>
+              <label class="check"><input type="checkbox" name="is_enabled" value="true" {% if model.is_enabled %}checked{% endif %}> enabled</label>
+              <label class="check"><input type="checkbox" name="is_default" value="true" {% if model.is_default %}checked{% endif %}> default</label>
+              <input name="notes" value="{{ model.notes or '' }}" placeholder="notes">
+              <button class="small" type="submit">Save</button>
+            </form>
+            <form hx-post="/ui/provider-models/{{ model.id }}/test" hx-target="#provider-model-test-{{ model.id }}" hx-swap="innerHTML" class="row-form">
+              <button class="small ghost" type="submit">Test Health</button>
+            </form>
+            <div id="provider-model-test-{{ model.id }}"></div>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination-row">
+  <span>Showing {{ provider_models|length }} provider models</span>
+  <button class="ghost small" disabled>Prev</button>
+  <button class="ghost small" disabled>Next</button>
+</div>
+{% else %}
+<div class="empty-state strong">
+  <h3>No provider models configured yet.</h3>
+  <p>Sync from existing GatewayModel mappings or create upstream model catalog entries manually.</p>
+  <button class="secondary" disabled>Create ProviderModel</button>
+</div>
+{% endif %}
