@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from app.deps import SessionDep
 from app.routers.ui.security import user_or_none
@@ -36,3 +36,19 @@ def index(request: Request, session: SessionDep, page: str = "dashboard") -> Res
             "page_subtitle": subtitle,
         },
     )
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, session: SessionDep) -> Response:
+    user = user_or_none(request, session)
+    if user:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request, "login.html")
+
+
+@router.get("/register", response_class=HTMLResponse)
+def register_page(request: Request, session: SessionDep) -> Response:
+    user = user_or_none(request, session)
+    if user:
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request, "login.html")

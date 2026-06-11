@@ -14,7 +14,7 @@
         <h1>Gateway4LLM</h1>
         <span>管理入口</span>
       </div>
-      <form class="stack" hx-post="/ui/login" hx-target="#auth-status">
+      <form class="stack" method="post" action="/ui/login" hx-post="/ui/login" hx-target="#auth-status">
         <label>邮箱<input name="email" type="email" required autocomplete="email"></label>
         <label>密码<input name="password" type="password" required autocomplete="current-password"></label>
         <button type="submit">登录</button>
